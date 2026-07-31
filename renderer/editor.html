@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; worker-src 'self' blob: data:;" />
+  <title>Editor</title>
+  <style>
+    :root {
+      --bg: #0b0e14; --panel: #11151f; --border: #232a3a; --btn: #161b28; --btn-h: #1d2434;
+      --text: #c9d1d9; --dim: #8b949e; --accent: #4da3ff; --danger: #ff6b6b; --ok: #3fd97a;
+    }
+    :root[data-ui="light"] {
+      --bg: #f0f2f5; --panel: #ffffff; --border: #d0d7de; --btn: #eef1f4; --btn-h: #e7ebef;
+      --text: #1f2328; --dim: #57606a; --accent: #0969da; --danger: #cf222e; --ok: #1a7f37;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: "Segoe UI", system-ui, sans-serif; font-size: 13px;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #bar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--border); flex: none;
+    }
+    #fname { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px; color: var(--dim);
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    #dirty { color: var(--accent); font-weight: 700; width: 12px; }
+    #status { color: var(--dim); font-size: 11px; }
+    button {
+      background: var(--btn); color: var(--text); border: 1px solid var(--border);
+      border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer;
+    }
+    button:hover { background: var(--btn-h); }
+    button.primary { background: #1a4f8a; border-color: #2a6fbe; }
+    #editor { flex: 1; min-height: 0; }
+    #confirm {
+      display: none; gap: 10px; align-items: center;
+      padding: 6px 10px; background: #2a1d13; border-bottom: 1px solid #6b5320; color: #ffd58a; flex: none;
+    }
+    #note { display: none; padding: 6px 10px; background: #202634; color: var(--dim); flex: none; }
+  </style>
+</head>
+<body>
+  <div id="bar">
+    <span id="dirty"></span>
+    <span id="fname"></span>
+    <span id="status"></span>
+    <button id="btn-dock" title="Move back into the main grid as a tile" data-icon="dock"> Dock</button>
+    <button id="btn-save" class="primary" title="Ctrl+S" data-icon="save"> Save</button>
+  </div>
+  <div id="confirm">
+    <span>Unsaved changes.</span>
+    <button id="c-save" class="primary">Save &amp; close</button>
+    <button id="c-discard">Discard &amp; close</button>
+    <button id="c-back">Keep editing</button>
+  </div>
+  <div id="note"></div>
+  <div id="editor"></div>
+  <script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
+  <script src="icons.js"></script>
+  <script src="editor.js"></script>
+</body>
+</html>

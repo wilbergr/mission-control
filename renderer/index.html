@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; worker-src 'self' blob: data:;" />
+  <title>Mission Control</title>
+  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="root">
+    <aside id="sidebar">
+      <div class="sb-head">
+        <span class="logo">Mission&nbsp;Control</span>
+        <span class="sb-head-btns">
+          <button id="btn-new" title="New session (Ctrl+Shift+N)" data-icon="plus"></button>
+          <button id="btn-collapse-left" class="chev" title="Collapse sidebar" data-icon="chevsL"></button>
+        </span>
+      </div>
+      <div id="session-list"></div>
+      <div class="sb-foot">
+        <button id="btn-settings" title="Settings" data-icon="sliders"> Settings</button>
+        <button id="btn-layout" title="Switch tiled/tabbed layout (Ctrl+Shift+T)"></button>
+        <span id="attention-count"></span>
+      </div>
+      <div class="rail" id="left-rail" title="Expand sidebar" data-icon="chevsR"></div>
+    </aside>
+
+    <main id="center">
+      <div id="tabbar"></div>
+      <div id="grid" class="empty">
+        <div id="grid-empty">
+          <p>No sessions yet.</p>
+          <p><button id="btn-new-2">Start a Claude session</button></p>
+          <p class="hint">Ctrl+Shift+N new · Alt+1–9 focus · Ctrl+Shift+Z zoom · Ctrl+Shift+B broadcast</p>
+        </div>
+      </div>
+      <div id="broadcast">
+        <select id="bc-target" title="Who receives this message">
+          <option value="focused">Focused</option>
+          <option value="claude">All Claude</option>
+          <option value="all">All sessions</option>
+          <option value="attention">Needs-me only</option>
+        </select>
+        <input id="bc-input" type="text" spellcheck="false"
+               placeholder="Send a message to session(s)… (Enter to send)" />
+        <button id="bc-send" data-icon="send"> Send</button>
+        <button id="bc-interrupt" title="Send interrupt (Esc / Ctrl+C) to targets" data-icon="stop"> Interrupt</button>
+      </div>
+    </main>
+
+    <aside id="right">
+      <div class="tabs">
+        <button class="tab active" data-tab="files">Files</button>
+        <button class="tab" data-tab="changes">Changes</button>
+        <button class="tab" data-tab="activity">Activity</button>
+        <button id="btn-refresh-ws" title="Refresh" data-icon="refresh"></button>
+        <button id="btn-collapse-right" class="chev" title="Collapse panel (Ctrl+Shift+E)" data-icon="chevsR"></button>
+      </div>
+      <div class="rail" id="right-rail" title="Expand panel (Ctrl+Shift+E)" data-icon="chevsL"></div>
+      <div id="panel-files" class="panel active"></div>
+      <div id="panel-changes" class="panel"></div>
+      <div id="panel-activity" class="panel"></div>
+    </aside>
+  </div>
+
+  <dialog id="dlg-new">
+    <form method="dialog" id="new-form">
+      <h2>New session</h2>
+      <label>Type
+        <span class="radio-row">
+          <label><input type="radio" name="kind" value="claude" checked /> Claude Code</label>
+          <label><input type="radio" name="kind" value="shell" /> PowerShell</label>
+          <label id="nf-wsl-label" style="display:none"><input type="radio" name="kind" value="wsl" /> WSL
+            <select id="nf-distro"></select>
+          </label>
+        </span>
+      </label>
+      <label>Directory
+        <span class="row">
+          <input id="nf-dir" type="text" spellcheck="false" placeholder="C:\src\myproject" />
+          <button type="button" id="nf-browse">Browse…</button>
+        </span>
+        <span id="nf-gitline" class="hint"></span>
+      </label>
+      <label>Name <input id="nf-name" type="text" spellcheck="false" placeholder="(defaults to folder name)" /></label>
+      <div id="nf-claude-opts">
+        <div class="row2">
+          <label>Model
+            <select id="nf-model">
+              <option value="">Default</option>
+              <option value="opus">Opus — most capable</option>
+              <option value="sonnet">Sonnet — balanced</option>
+              <option value="haiku">Haiku — fastest</option>
+            </select>
+          </label>
+          <label>Permissions
+            <select id="nf-permmode">
+              <option value="">Ask before actions (default)</option>
+              <option value="plan">Plan mode — propose before doing</option>
+              <option value="acceptEdits">Auto-accept file edits</option>
+            </select>
+          </label>
+        </div>
+        <label>Starting prompt (optional — Claude begins working on it immediately)
+          <textarea id="nf-prompt" rows="2" spellcheck="false" placeholder="e.g. Review the failing tests in this repo and fix them"></textarea>
+        </label>
+        <label class="check"><input id="nf-continue" type="checkbox" /> Continue most recent conversation in this directory</label>
+        <label class="check"><input id="nf-worktree" type="checkbox" disabled /> Run in a new git worktree (parallel-safe)
+          <input id="nf-branch" type="text" spellcheck="false" placeholder="branch name" disabled />
+        </label>
+        <label>Additional directories (--add-dir, one per line)
+          <textarea id="nf-adddirs" rows="2" spellcheck="false"></textarea>
+        </label>
+        <label>Extra CLI args <input id="nf-args" type="text" spellcheck="false" placeholder='e.g. --model opus' /></label>
+      </div>
+      <div class="dlg-buttons">
+        <button type="button" id="nf-cancel">Cancel</button>
+        <button type="submit" id="nf-create" class="primary">Create</button>
+      </div>
+      <div id="nf-error" class="error"></div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-settings">
+    <h2>Settings</h2>
+    <label>Appearance
+      <select id="set-uimode">
+        <option value="system">System</option>
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
+    </label>
+    <label>Default terminal colors
+      <select id="set-theme"></select>
+      <span class="hint">Applies to all terminals without a per-session override (the "clr" button on each pane).</span>
+    </label>
+    <label>Terminal font size
+      <input id="set-font" type="number" min="9" max="22" step="1" style="width:70px" />
+    </label>
+    <label class="check">
+      <input id="set-notif" type="checkbox" checked />
+      Desktop notifications when a session needs you
+    </label>
+    <div class="dlg-buttons">
+      <button id="settings-close" class="primary">Done</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-view">
+    <div class="view-head">
+      <span id="view-title"></span>
+      <button id="view-close" data-icon="close"></button>
+    </div>
+    <pre id="view-body"></pre>
+  </dialog>
+
+  <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>
+  <script src="../node_modules/@xterm/addon-search/lib/addon-search.js"></script>
+  <script src="themes.js"></script>
+  <script src="icons.js"></script>
+  <script src="panes.js"></script>
+  <script src="editors.js"></script>
+  <script src="panels.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

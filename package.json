@@ -1,0 +1,56 @@
+{
+  "name": "mission-control",
+  "productName": "Mission Control",
+  "version": "1.1.0",
+  "description": "Mission Control — multi-session Claude Code IDE for Windows: tiled terminals, session status, broadcast input, workspace visibility",
+  "main": "main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "author": "Wilshire Advisors",
+  "build": {
+    "appId": "com.wilshire.missioncontrol",
+    "npmRebuild": false,
+    "productName": "Mission Control",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main/**",
+      "renderer/**",
+      "preload.js",
+      "package.json",
+      "!node_modules/monaco-editor/{esm,dev,min-maps}/**"
+    ],
+    "asarUnpack": [
+      "node_modules/@homebridge/node-pty-prebuilt-multiarch/**"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "deleteAppDataOnUninstall": false
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-search": "^0.15.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "monaco-editor": "^0.56.0"
+  }
+}
