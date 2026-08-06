@@ -27,6 +27,10 @@ function send(channel, payload) {
 
 const popouts = new Map(); // sessionId -> BrowserWindow
 
+// Windows only picks this up per-window; build/icon.ico must also be listed in
+// electron-builder's `files` or it won't exist in the packaged app.
+const APP_ICON = path.join(__dirname, '..', 'build', 'icon.ico');
+
 function resolveClaudePath() {
   return new Promise((resolve) => {
     execFile('where.exe', ['claude'], { windowsHide: true }, (err, stdout) => {
@@ -64,6 +68,7 @@ function createWindow() {
     minHeight: 560,
     backgroundColor: '#0b0e14',
     title: 'Mission Control',
+    icon: APP_ICON,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload.js'),
@@ -199,6 +204,7 @@ function registerIpc() {
       width: 960,
       height: 620,
       backgroundColor: '#0d1117',
+      icon: APP_ICON,
       autoHideMenuBar: true,
       webPreferences: {
         preload: path.join(__dirname, '..', 'preload.js'),
@@ -234,6 +240,7 @@ function registerIpc() {
       width: 1050,
       height: 780,
       backgroundColor: '#0b0e14',
+      icon: APP_ICON,
       autoHideMenuBar: true,
       webPreferences: {
         preload: path.join(__dirname, '..', 'preload.js'),
