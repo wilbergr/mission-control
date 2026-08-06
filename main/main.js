@@ -6,7 +6,7 @@ const { execFile } = require('child_process');
 const { HookServer } = require('./hook-server');
 const { SessionManager } = require('./session-manager');
 const ws = require('./workspace');
-const { Persistence } = require('./persistence');
+const { Persistence, dedupeByName } = require('./persistence');
 
 let win = null;
 let manager = null;
@@ -275,6 +275,8 @@ function registerIpc() {
     const state = persistence.load();
     const entry = (state.history || []).find((h) => h.hid === hid);
     if (entry && String(name || '').trim()) entry.name = String(name).trim();
+    // renaming onto an existing name must not leave two entries behind
+    state.history = dedupeByName(state.history);
     persistence.save(state);
     return state.history;
   });

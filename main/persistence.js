@@ -5,6 +5,19 @@
 const fs = require('fs');
 const path = require('path');
 
+// One pinned entry per name: a Claude conversation gets a fresh uuid every time,
+// so without this the Previous list fills up with copies of the same folder
+// name. Newest wins; rename a session to keep more than one.
+function dedupeByName(hist) {
+  const byName = new Map(); // lower-cased name -> entry
+  for (const h of hist || []) {
+    const key = String(h.name || '').trim().toLowerCase();
+    const kept = byName.get(key);
+    if (!kept || (h.lastUsed || 0) >= (kept.lastUsed || 0)) byName.set(key, h);
+  }
+  return [...byName.values()];
+}
+
 class Persistence {
   constructor(userDataDir) {
     this.file = path.join(userDataDir, 'state.json');
@@ -14,6 +27,7 @@ class Persistence {
     try {
       const s = JSON.parse(fs.readFileSync(this.file, 'utf8'));
       if (!Array.isArray(s.history)) s.history = [];
+      s.history = dedupeByName(s.history); // heals lists saved before the rule existed
       return s;
     } catch {
       return { sessions: [], history: [], ui: {} };
@@ -57,7 +71,10 @@ class Persistence {
         hist.find((h) => h.runKey === s.id) ||
         // plain shells: collapse by identity so history isn't spammed
         (s.kind !== 'claude' &&
-          hist.find((h) => h.kind === s.kind && h.cwd === s.cwd && h.name === s.name && (h.distro || null) === (s.distro || null)));
+          hist.find((h) => h.kind === s.kind && h.cwd === s.cwd && h.name === s.name && (h.distro || null) === (s.distro || null))) ||
+        // one entry per name: reuse it in place (keeps hid stable) rather than
+        // adding a second entry for dedupeByName to collapse later
+        hist.find((h) => String(h.name || '').trim().toLowerCase() === String(s.name || '').trim().toLowerCase());
       if (!e) {
         e = { hid: `h${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}` };
         hist.push(e);
@@ -75,9 +92,10 @@ class Persistence {
         lastUsed: Date.now(),
       });
     }
-    hist.sort((a, b) => (b.lastUsed || 0) - (a.lastUsed || 0));
-    return hist.slice(0, 50);
+    const deduped = dedupeByName(hist);
+    deduped.sort((a, b) => (b.lastUsed || 0) - (a.lastUsed || 0));
+    return deduped.slice(0, 50);
   }
 }
 
-module.exports = { Persistence };
+module.exports = { Persistence, dedupeByName };

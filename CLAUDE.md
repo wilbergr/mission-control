@@ -34,13 +34,27 @@ Consequences to keep in mind when changing anything here:
 - Adding a hook event means adding it to `HOOK_EVENTS` **and** to the `switch` in `handleHookEvent`.
 - A user-supplied `--settings` in Extra CLI args replaces the generated one and silently kills all status reporting. The sidebar's "no hook signal yet" (`hooksSeen === false`) is the tell. A terminal-BEL heuristic in `proc.onData` is the only fallback, and it is deliberately trusted *only* while `hooksSeen` is false.
 - `PreToolUse` for `AskUserQuestion` is special-cased: the structured `tool_input` is normalized into `pendingQuestion` so the renderer can draw real answer buttons.
-- Token usage is not from hooks — after `Stop`, `_updateUsage` reads Claude's own transcript at `~/.claude/projects/<cwd with every non-alphanumeric replaced by '-'>/<claudeSessionId>.jsonl`. A nonstandard `CLAUDE_CONFIG_DIR` makes usage silently unavailable (by design; failures are swallowed).
+- Token usage is not from hooks — after `Stop`, `_updateUsage` reads Claude's own transcript at `<CLAUDE_CONFIG_DIR or ~/.claude>/projects/<cwd with every non-alphanumeric replaced by '-'>/<claudeSessionId>.jsonl` (`projectsRoot()` / `transcriptPath()`). Failures are swallowed — usage is best-effort.
+
+### Startup failure modes are handled up front, not left to hang
+
+A stale `--resume` id (or `--continue` with no history) makes Claude print `No conversation found …` and then sit there forever with no hooks — a session that looks like it's still "Starting". Three layers guard this, in `session-manager.js`:
+
+1. **Pre-flight** — `create()` checks `_resumeUnavailable()` / `_noTranscripts()` against the transcript store and *drops* the flag rather than passing a doomed one, starting a fresh conversation in the same directory and setting `s.notice`. Both helpers deliberately return `false` (don't touch the flags) when `projectsRoot()` itself is missing: undecidable, so let Claude decide rather than guess wrong.
+2. **Output detector** — `_checkStartupTrouble()` scans startup output for short, wrap-resistant fragments of Claude's own error messages (`STARTUP_ERROR_ANCHORS`, taken verbatim from the CLI binary). It runs *only* while `!hooksSeen` and reports once, so a conversation that merely discusses these strings can't trip it.
+3. **Watchdog** — `START_GRACE_MS` (45 s) with no hook signal at all flips the session to `attention` with an explanation. Cleared by the first hook, by exit, and by `remove()`.
+
+`s.notice` is the user-facing channel for "we changed what you asked for" — set in main, carried through `describe()`, rendered as an amber line in the sidebar item. It is not persisted.
 
 ### IPC contract
 
 `SessionManager.describe(s)` is the wire format for a session — everything the renderer knows comes from it. Adding a session field usually means touching three places: the object literal in `create()`, `describe()`, and `Persistence.snapshotSessions`/`mergeHistory` if it should survive a restart.
 
 Events are pushed via `main.js`'s `send()`, which broadcasts to **every** BrowserWindow (control window + pop-outs). New channels must be added to `EVENT_CHANNELS` in `preload.js` or `gwt.on()` throws.
+
+**Session history is one entry per name.** Claude mints a new conversation uuid on every launch, so keying history on the uuid grew a fresh "Previous" row per run. `dedupeByName` (persistence.js) collapses on lower-cased name, newest `lastUsed` winning; it runs in `load()` (heals old files), at the end of `mergeHistory`, and after `app:historyRename`. `mergeHistory`'s lookup chain also matches by name so an entry is reused *in place*, keeping `hid` stable. Consequence: several concurrent sessions on one folder share one history entry unless renamed.
+
+The sidebar's Previous section must never re-list a session already shown above it. `renderPreviousSection` filters on `h.runKey` being a current session id — not `claudeSessionId`, which is null until the first hook, and not "live only", since an exited session is still listed above. Both of those holes produced permanent duplicate rows.
 
 Launch options set through the friendly dropdowns (model, permission mode) are deliberately folded into the `extraArgs` string in `app.js`'s submit handler rather than kept as separate fields — that way they persist through history/restore like any other CLI arg. `initialPrompt` is the exception: it's passed positionally and never persisted, so restore/resume doesn't replay it.
 

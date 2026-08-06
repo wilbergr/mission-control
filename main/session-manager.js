@@ -18,6 +18,19 @@ const { EventEmitter } = require('events');
 const pty = require('@homebridge/node-pty-prebuilt-multiarch');
 
 const MAX_BUFFER_CHARS = 400_000; // scrollback replay buffer per session
+const START_GRACE_MS = 45_000; // no hook signal by now -> tell the user instead of sitting on "Starting"
+
+// Short, wrap-resistant fragments of what Claude Code prints when it cannot open
+// a conversation (stale --resume id, --continue with nothing to continue). Only
+// matched during startup, before any hook has reported.
+const STARTUP_ERROR_ANCHORS = [
+  'no conversation found',
+  'not found in project directory',
+  'not found in any project directory',
+  'may have been archived or expired',
+  'session not found',
+];
+
 const HOOK_EVENTS = [
   'SessionStart',
   'UserPromptSubmit',
@@ -78,6 +91,20 @@ function transcriptDirFor(cwd) {
   return String(cwd).replace(/[^a-zA-Z0-9]/g, '-');
 }
 
+// Where Claude Code keeps conversation transcripts, honoring CLAUDE_CONFIG_DIR.
+function projectsRoot() {
+  const base = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+  return path.join(base, 'projects');
+}
+
+function transcriptPath(cwd, claudeSessionId) {
+  return path.join(projectsRoot(), transcriptDirFor(cwd), `${claudeSessionId}.jsonl`);
+}
+
+function stripAnsi(s) {
+  return s.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b[()][A-Z0-9]/g, '');
+}
+
 // Normalize AskUserQuestion tool_input into a UI-friendly shape.
 function normalizeQuestions(input) {
   const qs = (input && input.questions) || [];
@@ -123,12 +150,26 @@ class SessionManager extends EventEmitter {
     const addDirs = (opts.addDirs || []).filter(Boolean);
 
     let file, args;
+    let notice = null; // surfaced in the UI when we had to change what was asked for
     if (kind === 'claude') {
       const settingsPath = this._writeHookSettings(id);
       args = ['--settings', settingsPath];
       for (const d of addDirs) args.push('--add-dir', d);
-      if (opts.continue) args.push('--continue');
-      if (opts.resume) args.push('--resume', opts.resume);
+      // A stale --resume id (or --continue with no history) makes Claude print
+      // "No conversation found …" and sit there with no hooks — a dead session.
+      // Check first and fall back to a fresh conversation in the same directory.
+      let resume = opts.resume || null;
+      let cont = !!opts.continue;
+      if (resume && this._resumeUnavailable(cwd, resume)) {
+        notice = 'Saved conversation not found for this directory — started a fresh session instead.';
+        resume = null;
+      }
+      if (cont && this._noTranscripts(cwd)) {
+        notice = 'No previous conversation in this directory — started a fresh session instead.';
+        cont = false;
+      }
+      if (cont) args.push('--continue');
+      if (resume) args.push('--resume', resume);
       args.push(...splitArgs(opts.extraArgs));
       // one-shot starting prompt (positional arg); deliberately not persisted,
       // so restore/resume won't replay it
@@ -178,25 +219,44 @@ class SessionManager extends EventEmitter {
       claudeSessionId: null, // Claude's own session UUID (from hook payloads)
       pendingQuestion: null, // AskUserQuestion payload while Claude waits on a choice
       usage: null, // {out, ctx, model} parsed from the transcript after each turn
+      notice, // launch caveat worth showing the user (e.g. resume fell back to fresh)
+      startedAt: Date.now(), // bounds how long startup output is scanned
+      startupReported: false, // startup-trouble message already raised
+      startTimer: null,
       exitCode: null,
     };
     this.sessions.set(id, s);
+    if (notice) s.activity = notice;
+    if (kind === 'claude') {
+      // Nothing from Claude at all after a generous grace period means the
+      // session is stuck (unanswered prompt in the terminal, a launch error we
+      // don't recognize, hooks blocked). Say so instead of showing "Starting".
+      s.startTimer = setTimeout(() => {
+        s.startTimer = null;
+        if (s.hooksSeen || s.status !== 'starting') return;
+        s.notice = s.notice || 'No signal from Claude yet — check this session\'s terminal for a prompt or error.';
+        this._setStatus(s, 'attention', 'No signal from Claude yet — check the terminal');
+        this._pushActivity(s, 'attention', 'No hook signal after 45s — session may be waiting in the terminal');
+      }, START_GRACE_MS);
+    }
 
     proc.onData((data) => {
       s.buffer += data;
       if (s.buffer.length > MAX_BUFFER_CHARS) {
         s.buffer = s.buffer.slice(s.buffer.length - MAX_BUFFER_CHARS);
       }
-      // Bell heuristic: only trusted when hooks aren't reporting (e.g. hooks
-      // misconfigured) — Claude rings BEL when it needs attention.
-      if (s.kind === 'claude' && !s.hooksSeen && data.includes('\x07') && s.status !== 'exited') {
-        this._setStatus(s, 'attention', 'Terminal bell — may need input');
+      if (s.kind === 'claude' && !s.hooksSeen && s.status !== 'exited') {
+        // Bell heuristic: only trusted when hooks aren't reporting (e.g. hooks
+        // misconfigured) — Claude rings BEL when it needs attention.
+        if (data.includes('\x07')) this._setStatus(s, 'attention', 'Terminal bell — may need input');
+        this._checkStartupTrouble(s);
       }
       this.emit('data', { id, data });
     });
 
     proc.onExit(({ exitCode }) => {
       s.exitCode = exitCode;
+      this._clearStartTimer(s);
       this._setStatus(s, 'exited', `Exited (code ${exitCode})`);
       this._pushActivity(s, 'exit', `Process exited with code ${exitCode}`);
       this.emit('exit', { id, exitCode });
@@ -204,6 +264,7 @@ class SessionManager extends EventEmitter {
 
     this.emit('created', this.describe(s));
     this._pushActivity(s, 'spawn', kind === 'claude' ? 'Claude session launched' : 'Terminal launched');
+    if (notice) this._pushActivity(s, 'notice', notice);
     return this.describe(s);
   }
 
@@ -218,6 +279,7 @@ class SessionManager extends EventEmitter {
   remove(id) {
     const s = this.sessions.get(id);
     if (!s) return;
+    this._clearStartTimer(s);
     this.kill(id);
     this.sessions.delete(id);
     const settings = path.join(this.hooksDir, `${id}.json`);
@@ -301,6 +363,7 @@ class SessionManager extends EventEmitter {
       claudeSessionId: s.claudeSessionId,
       pendingQuestion: s.pendingQuestion,
       usage: s.usage,
+      notice: s.notice,
       distro: s.distro,
       theme: s.theme,
       exitCode: s.exitCode,
@@ -309,8 +372,59 @@ class SessionManager extends EventEmitter {
 
   killAll() {
     for (const s of this.sessions.values()) {
+      this._clearStartTimer(s);
       try { s.proc.kill(); } catch { /* ignore */ }
     }
+  }
+
+  // ---- startup trouble detection -------------------------------------------
+
+  _clearStartTimer(s) {
+    if (s.startTimer) {
+      clearTimeout(s.startTimer);
+      s.startTimer = null;
+    }
+  }
+
+  /** True when we can positively tell Claude has no such conversation here. */
+  _resumeUnavailable(cwd, claudeSessionId) {
+    try {
+      // If the transcript root is missing entirely we can't tell (relocated
+      // config, first ever run) — let Claude make the call.
+      if (!fs.existsSync(projectsRoot())) return false;
+      return !fs.existsSync(transcriptPath(cwd, claudeSessionId));
+    } catch {
+      return false;
+    }
+  }
+
+  /** True when this directory has no conversations for --continue to pick up. */
+  _noTranscripts(cwd) {
+    try {
+      if (!fs.existsSync(projectsRoot())) return false;
+      const dir = path.join(projectsRoot(), transcriptDirFor(cwd));
+      if (!fs.existsSync(dir)) return true;
+      return !fs.readdirSync(dir).some((f) => f.endsWith('.jsonl'));
+    } catch {
+      return false;
+    }
+  }
+
+  // Last line of defence for a launch that failed in a way we didn't predict:
+  // scan startup output (before any hook has reported) for Claude's own
+  // "can't open that conversation" messages and flag the session. Bounded to the
+  // startup window: `hooksSeen` stays false forever when hooks are misconfigured,
+  // and scanning every chunk of a whole session would be both wasteful and prone
+  // to matching conversation text that merely quotes these messages.
+  _checkStartupTrouble(s) {
+    if (s.startupReported || Date.now() - s.startedAt > START_GRACE_MS) return;
+    const tail = stripAnsi(s.buffer.slice(-6000)).replace(/\s+/g, ' ').toLowerCase();
+    if (!STARTUP_ERROR_ANCHORS.some((a) => tail.includes(a))) return;
+    s.startupReported = true;
+    this._clearStartTimer(s);
+    s.notice = 'Claude could not open that conversation. Launch a fresh session in this directory, or answer the prompt in the terminal.';
+    this._setStatus(s, 'attention', 'Could not open the saved conversation');
+    this._pushActivity(s, 'attention', 'Resume failed — Claude could not open the saved conversation');
   }
 
   // ---- Claude hook handling ------------------------------------------------
@@ -319,6 +433,7 @@ class SessionManager extends EventEmitter {
     const s = this.sessions.get(id);
     if (!s || s.status === 'exited') return;
     s.hooksSeen = true;
+    this._clearStartTimer(s); // Claude is talking to us; the watchdog is moot
     if (payload.session_id) s.claudeSessionId = payload.session_id;
 
     const ev = payload.hook_event_name;
@@ -381,12 +496,10 @@ class SessionManager extends EventEmitter {
   }
 
   // Sum token usage from the session's transcript (JSONL under
-  // ~/.claude/projects/<encoded-cwd>/<claude-session-uuid>.jsonl).
+  // <config dir>/projects/<encoded-cwd>/<claude-session-uuid>.jsonl).
   async _updateUsage(s) {
     if (!s.claudeSessionId) return;
-    const file = path.join(
-      os.homedir(), '.claude', 'projects', transcriptDirFor(s.cwd), `${s.claudeSessionId}.jsonl`
-    );
+    const file = transcriptPath(s.cwd, s.claudeSessionId);
     try {
       const stat = await fs.promises.stat(file);
       if (stat.size > 50_000_000) return; // sanity cap
