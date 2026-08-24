@@ -296,6 +296,7 @@ window.GWT = window.GWT || {};
   function openNewDialog() {
     $('#nf-error').textContent = '';
     $('#nf-gitline').textContent = '';
+    loadWslDistros();
     dlgNew.showModal();
     $('#nf-dir').focus();
   }
@@ -343,8 +344,14 @@ window.GWT = window.GWT || {};
     })
   );
 
-  // Offer WSL only when distros are actually installed.
-  (async () => {
+  // Offer WSL only when distros are actually installed. Deferred until the
+  // dialog is first opened rather than run at startup: enumerating distros
+  // means spawning wsl.exe, and there's no reason to do that for someone who
+  // never creates a session. Main caches the result, so this costs one spawn.
+  let wslLoaded = false;
+  async function loadWslDistros() {
+    if (wslLoaded) return;
+    wslLoaded = true;
     try {
       const distros = await window.gwt.app.wslDistros();
       if (distros.length) {
@@ -354,7 +361,7 @@ window.GWT = window.GWT || {};
           .join('');
       }
     } catch { /* wsl.exe missing — keep option hidden */ }
-  })();
+  }
   $('#nf-cancel').addEventListener('click', () => dlgNew.close());
 
   $('#new-form').addEventListener('submit', async (e) => {

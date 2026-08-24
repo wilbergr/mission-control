@@ -87,7 +87,9 @@ Because a hidden tile keeps receiving output sized for the pop-out window, re-do
 
 ## Windows-only by design
 
-`powershell.exe`, `wsl.exe --list --quiet` (UTF-16LE output, docker distros filtered), `where.exe claude`, bundled `curl.exe`, ConPTY, backslash paths, and `git status` output re-joined with `path.sep`. Path comparisons against git output are lowercased (`changesMap`) because the filesystem is case-insensitive. Don't introduce POSIX assumptions; there is no cross-platform target.
+`powershell.exe`, `wsl.exe --list --quiet` (UTF-16LE output, docker distros filtered), bundled `curl.exe`, ConPTY, backslash paths, and `git status` output re-joined with `path.sep`. Path comparisons against git output are lowercased (`changesMap`) because the filesystem is case-insensitive. Don't introduce POSIX assumptions; there is no cross-platform target.
+
+**Keep the startup path free of process spawns.** Endpoint protection scores a freshly-written unsigned binary that fans out to discovery tools (`whoami`, `where`, `reg`, `cmdkey`) as credential-theft behavior, and a launch-time spawn fires that heuristic for every user on every run. So `resolveClaudePath()` walks `PATH` with `fs.statSync` + `PATHEXT` instead of calling `where.exe`, and `detectElevation()` reads an Administrators-only directory (`System32\LogFiles\WMI\RtBackup`) instead of parsing `whoami /groups` — trusting the `--elevated` argv marker that `relaunchElevated` passes when it is the one relaunching. Note `fs.access(W_OK)` cannot substitute for that probe: on Windows Node only checks the read-only attribute, not the ACL. The two remaining `execFile` calls in `main.js` are both conditional — `wsl.exe` is cached, guarded on the binary existing, and requested when the New Session dialog first opens rather than at startup; `powershell.exe` runs only on an explicit "Restart as administrator" click. `main.js` also pins both to absolute `System32` paths so `PATH` can't supply a substitute.
 
 Git worktrees created by the app land at `<repo parent>\<repo>.worktrees\<branch>` (`workspace.worktreeAdd`).
 

@@ -1,8 +1,15 @@
 'use strict';
 
 const { app, BrowserWindow, ipcMain, dialog, Notification, shell, nativeTheme } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
+
+// Absolute paths to the few Windows binaries we still shell out to, so PATH
+// cannot be hijacked into supplying a different one.
+const SYS32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+const POWERSHELL = path.join(SYS32, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+const WSL_EXE = path.join(SYS32, 'wsl.exe');
 const { HookServer } = require('./hook-server');
 const { SessionManager } = require('./session-manager');
 const ws = require('./workspace');
@@ -33,30 +40,51 @@ const popouts = new Map(); // sessionId -> BrowserWindow
 // electron-builder's `files` or it won't exist in the packaged app.
 const APP_ICON = path.join(__dirname, '..', 'build', 'icon.ico');
 
+// Walk PATH ourselves instead of shelling out to where.exe. This runs on every
+// launch, and where.exe is a discovery binary that endpoint protection flags
+// (MITRE T1217-adjacent); resolving it in-process is both quieter and faster.
+// Mirrors where.exe's semantics: first PATH directory wins, PATHEXT applied
+// within each directory.
 function resolveClaudePath() {
-  return new Promise((resolve) => {
-    execFile('where.exe', ['claude'], { windowsHide: true }, (err, stdout) => {
-      if (err || !stdout.trim()) return resolve(null);
-      resolve(stdout.trim().split(/\r?\n/)[0]);
-    });
-  });
+  const exts = ['', ...(process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)];
+  for (const raw of (process.env.PATH || '').split(path.delimiter)) {
+    const dir = raw.trim().replace(/^"|"$/g, '');
+    if (!dir) continue;
+    for (const ext of exts) {
+      const candidate = path.join(dir, 'claude' + ext);
+      try {
+        if (fs.statSync(candidate).isFile()) return candidate;
+      } catch { /* not here; keep looking */ }
+    }
+  }
+  return null;
 }
 
 // `wsl --list --quiet` prints UTF-16LE, one distro per line.
+//
+// Cached, and skipped outright when wsl.exe is absent, so the enumeration costs
+// at most one spawn per app run instead of one per renderer load. The renderer
+// asks for this when the New Session dialog first opens rather than at startup.
+let wslCache = null;
 function listWslDistros() {
+  if (wslCache) return Promise.resolve(wslCache);
+  if (!fs.existsSync(WSL_EXE)) {
+    wslCache = [];
+    return Promise.resolve(wslCache);
+  }
   return new Promise((resolve) => {
     execFile(
-      'wsl.exe',
+      WSL_EXE,
       ['--list', '--quiet'],
       { windowsHide: true, encoding: 'buffer' },
       (err, stdout) => {
-        if (err || !stdout) return resolve([]);
+        if (err || !stdout) return resolve((wslCache = []));
         const names = stdout
           .toString('utf16le')
           .split(/\r?\n/)
           .map((l) => l.replace(/\0/g, '').trim())
           .filter((l) => l && !l.startsWith('docker-desktop'));
-        resolve(names);
+        resolve((wslCache = names));
       }
     );
   });
@@ -67,29 +95,43 @@ function listWslDistros() {
 // takes no STARTUPINFOEX attribute list), so every PTY inherits this process's
 // token. Wanting an elevated session therefore means relaunching the app.
 //
-// Detected from the integrity-level SID rather than group names, which are
-// localized: High (12288) = elevated, System (16384) = SYSTEM.
+// Deliberately spawn-free. The obvious check -- `whoami /groups` and its
+// integrity-level SID -- is a textbook discovery technique (MITRE T1033/T1069)
+// that endpoint protection flags on every single launch, so instead:
+//   1. our own elevated relaunch passes --elevated, which is authoritative;
+//   2. otherwise read a directory only Administrators may open.
+// fs.access(W_OK) is no help here: on Windows, Node only checks the read-only
+// attribute, not the ACL, so it succeeds without real write permission.
 function detectElevation() {
-  return new Promise((resolve) => {
-    execFile('whoami.exe', ['/groups'], { windowsHide: true }, (err, stdout) => {
-      resolve(!err && !!stdout && /S-1-16-(?:12288|16384)/.test(stdout));
-    });
-  });
+  if (process.argv.includes('--elevated')) return true;
+  try {
+    fs.readdirSync(path.join(SYS32, 'LogFiles', 'WMI', 'RtBackup'));
+    return true;
+  } catch {
+    return false; // EPERM at medium integrity
+  }
 }
 
 // UAC can only elevate a fresh process, so this launches a second copy and the
 // caller quits this one. Declining the consent prompt makes powershell exit
 // non-zero, which leaves the current instance untouched.
+// Still PowerShell: Electron exposes no ShellExecute binding, and the
+// elevate.exe shim electron-builder bundles is itself unsigned and absent in
+// dev. Acceptable because this fires only on an explicit user click, unlike the
+// per-launch checks above. The relaunch passes --elevated so the new instance
+// never has to probe for its own privilege level.
 function relaunchElevated() {
   return new Promise((resolve) => {
     const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
     // packaged: execPath *is* the app. dev: electron.exe needs the app path.
-    const argList = app.isPackaged ? '' : ` -ArgumentList ${q(app.getAppPath())}`;
+    const argList = app.isPackaged
+      ? ` -ArgumentList '--elevated'`
+      : ` -ArgumentList ${q(app.getAppPath())},'--elevated'`;
     const cmd =
       `try { Start-Process -FilePath ${q(process.execPath)}${argList} ` +
       `-Verb RunAs -ErrorAction Stop } catch { exit 1 }`;
     execFile(
-      'powershell.exe',
+      POWERSHELL,
       ['-NoProfile', '-Command', cmd],
       { windowsHide: true },
       (err, _stdout, stderr) =>
@@ -153,7 +195,6 @@ async function init() {
   // One-time migration: the app was renamed GW Terminal -> Mission Control,
   // which changes the userData folder; carry the old state over.
   try {
-    const fs = require('fs');
     const newState = path.join(app.getPath('userData'), 'state.json');
     const oldState = path.join(app.getPath('userData'), '..', 'GW Terminal', 'state.json');
     if (!fs.existsSync(newState) && fs.existsSync(oldState)) {
@@ -168,8 +209,8 @@ async function init() {
   const prev = persistence.load();
   restorable = prev.sessions || [];
 
-  elevated = await detectElevation();
-  const claudePath = await resolveClaudePath();
+  elevated = detectElevation();
+  const claudePath = resolveClaudePath();
   manager = new SessionManager({
     hooksDir: path.join(app.getPath('userData'), 'hooks'),
     claudePath,
