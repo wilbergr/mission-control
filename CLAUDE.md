@@ -42,6 +42,8 @@ Consequences to keep in mind when changing anything here:
 
 Events are pushed via `main.js`'s `send()`, which broadcasts to **every** BrowserWindow (control window + pop-outs). New channels must be added to `EVENT_CHANNELS` in `preload.js` or `gwt.on()` throws.
 
+Because the renderer's `upsertSession` re-adds any id it sees, **a removed session must never emit again**. `remove()` sets `s.removed` before killing the PTY, and `_setStatus`/`onExit`/`_updateUsage` all check it — otherwise the late exit resurrects the sidebar entry, and the second `remove()` finds nothing in the map and emits nothing, leaving an entry that can't be closed. `remove()` also emits `removed` for ids it doesn't know, so a stale renderer entry can always be cleared.
+
 Launch options set through the friendly dropdowns (model, permission mode) are deliberately folded into the `extraArgs` string in `app.js`'s submit handler rather than kept as separate fields — that way they persist through history/restore like any other CLI arg. `initialPrompt` is the exception: it's passed positionally and never persisted, so restore/resume doesn't replay it.
 
 ### The grid: tiles are polymorphic

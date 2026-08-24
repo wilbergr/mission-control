@@ -198,6 +198,7 @@ class SessionManager extends EventEmitter {
     proc.onExit(({ exitCode }) => {
       s.exitCode = exitCode;
       this._setStatus(s, 'exited', `Exited (code ${exitCode})`);
+      if (s.removed) return; // remove() already told the renderer this one is gone
       this._pushActivity(s, 'exit', `Process exited with code ${exitCode}`);
       this.emit('exit', { id, exitCode });
     });
@@ -217,11 +218,18 @@ class SessionManager extends EventEmitter {
 
   remove(id) {
     const s = this.sessions.get(id);
-    if (!s) return;
-    this.kill(id);
-    this.sessions.delete(id);
-    const settings = path.join(this.hooksDir, `${id}.json`);
-    fs.promises.unlink(settings).catch(() => {});
+    if (s) {
+      // Killing the PTY makes onExit fire *after* this returns; the flag stops
+      // that late exit from emitting a status the renderer would treat as a
+      // live session and re-add to the sidebar.
+      s.removed = true;
+      this.kill(id);
+      this.sessions.delete(id);
+      const settings = path.join(this.hooksDir, `${id}.json`);
+      fs.promises.unlink(settings).catch(() => {});
+    }
+    // Emitted even for an id we no longer know about, so a renderer holding a
+    // stale entry can always clear it.
     this.emit('removed', { id });
   }
 
@@ -404,6 +412,7 @@ class SessionManager extends EventEmitter {
         }
       }
       s.usage = { out, ctx, model, updated: Date.now() };
+      if (s.removed) return; // closed while we were reading the transcript
       this.emit('status', this.describe(s));
     } catch {
       // transcript not found (e.g. custom CLAUDE_CONFIG_DIR) — usage stays unknown
@@ -415,7 +424,9 @@ class SessionManager extends EventEmitter {
     s.status = status;
     if (activity) s.activity = activity;
     if (changed) s.statusSince = Date.now();
-    this.emit('status', this.describe(s));
+    // A removed session must never surface again: the renderer's upsert would
+    // re-add it to the sidebar, and it could no longer be closed.
+    if (!s.removed) this.emit('status', this.describe(s));
   }
 
   _pushActivity(s, type, detail) {
