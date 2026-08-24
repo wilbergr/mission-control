@@ -194,6 +194,16 @@ button svg { vertical-align: -1px; }
   text-overflow: ellipsis;
   font-family: var(--font-mono);
 }
+.sess .notice {
+  margin-top: 3px;
+  padding: 2px 4px;
+  border-left: 2px solid var(--attention);
+  background: var(--panel-2);
+  border-radius: 0 3px 3px 0;
+  font-size: 10px;
+  color: var(--attention);
+  white-space: normal;
+}
 .sess .cwd {
   font-size: 10px;
   color: var(--text-faint);

@@ -48,6 +48,7 @@ window.GWT = window.GWT || {};
           }</span>
         </div>
         <div class="activity">${esc(s.activity || '')}</div>
+        ${s.notice ? `<div class="notice" title="${esc(s.notice)}">${esc(s.notice)}</div>` : ''}
         <div class="cwd" title="${esc(s.cwd)}">${esc(s.cwd)}</div>
         <div class="btns">
           <button class="b-rename" title="Rename session" data-icon="edit"></button>
@@ -79,15 +80,20 @@ window.GWT = window.GWT || {};
   // Previous sessions (persisted history) live below the running ones —
   // click to relaunch/resume, no startup dialog needed.
   function renderPreviousSection(list) {
-    const live = [...GWT.state.sessions.values()].filter((s) => s.status !== 'exited');
+    // A session already listed above must never appear here as well. Match on
+    // runKey (the session id its history entry was last written for) rather than
+    // claudeSessionId: a Claude session has no uuid until its first hook, and an
+    // exited one is still listed above — both used to show up twice.
+    const listed = GWT.state.sessions;
+    const listedNames = new Set(
+      [...listed.values()].map((s) => String(s.name || '').trim().toLowerCase())
+    );
     const prev = (GWT.state.history || []).filter((h) => {
-      if (h.claudeSessionId && live.some((s) => s.claudeSessionId === h.claudeSessionId)) return false;
-      if (
-        h.kind !== 'claude' &&
-        live.some(
-          (s) => s.kind === h.kind && s.cwd === h.cwd && s.name === h.name && (s.distro || null) === (h.distro || null)
-        )
-      ) return false;
+      if (h.runKey && listed.has(h.runKey)) return false;
+      if (h.claudeSessionId && [...listed.values()].some((s) => s.claudeSessionId === h.claudeSessionId)) return false;
+      // backstop for an entry not yet written for this run (history is one
+      // entry per name, so a name in the list above owns that entry)
+      if (listedNames.has(String(h.name || '').trim().toLowerCase())) return false;
       return true;
     });
     if (!prev.length) return;

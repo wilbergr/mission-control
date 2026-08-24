@@ -6,7 +6,7 @@ const { execFile } = require('child_process');
 const { HookServer } = require('./hook-server');
 const { SessionManager } = require('./session-manager');
 const ws = require('./workspace');
-const { Persistence } = require('./persistence');
+const { Persistence, dedupeByName } = require('./persistence');
 
 let win = null;
 let manager = null;
@@ -28,6 +28,10 @@ function send(channel, payload) {
 }
 
 const popouts = new Map(); // sessionId -> BrowserWindow
+
+// Windows only picks this up per-window; build/icon.ico must also be listed in
+// electron-builder's `files` or it won't exist in the packaged app.
+const APP_ICON = path.join(__dirname, '..', 'build', 'icon.ico');
 
 function resolveClaudePath() {
   return new Promise((resolve) => {
@@ -106,6 +110,7 @@ function createWindow() {
     minHeight: 560,
     backgroundColor: '#0b0e14',
     title: 'Mission Control',
+    icon: APP_ICON,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload.js'),
@@ -242,6 +247,7 @@ function registerIpc() {
       width: 960,
       height: 620,
       backgroundColor: '#0d1117',
+      icon: APP_ICON,
       autoHideMenuBar: true,
       webPreferences: {
         preload: path.join(__dirname, '..', 'preload.js'),
@@ -277,6 +283,7 @@ function registerIpc() {
       width: 1050,
       height: 780,
       backgroundColor: '#0b0e14',
+      icon: APP_ICON,
       autoHideMenuBar: true,
       webPreferences: {
         preload: path.join(__dirname, '..', 'preload.js'),
@@ -318,6 +325,8 @@ function registerIpc() {
     const state = persistence.load();
     const entry = (state.history || []).find((h) => h.hid === hid);
     if (entry && String(name || '').trim()) entry.name = String(name).trim();
+    // renaming onto an existing name must not leave two entries behind
+    state.history = dedupeByName(state.history);
     persistence.save(state);
     return state.history;
   });

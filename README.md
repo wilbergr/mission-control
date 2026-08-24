@@ -80,7 +80,9 @@ The right panel (`Ctrl+Shift+E`) follows the focused session:
 
 ### Session history
 
-Previous sessions live at the bottom of the sidebar — click to **resume the exact conversation** (`--resume` under the hood), the refresh icon launches fresh in the same directory, X removes the entry. History survives restarts (last 50, deduplicated); no process keeps running after you close a session — what's revived is the conversation.
+Previous sessions live at the bottom of the sidebar — click to **resume the exact conversation** (`--resume` under the hood), the refresh icon launches fresh in the same directory, X removes the entry. History survives restarts (last 50) and keeps **one entry per session name**, newest wins — rename a session if you want to keep more than one conversation for the same folder. A session that's currently in the list above never appears here as well. No process keeps running after you close a session — what's revived is the conversation.
+
+If the saved conversation can't be found (transcript deleted, directory moved, worktree removed), the session starts fresh in the same directory instead of hanging, and says so in the sidebar.
 
 ### Appearance
 
@@ -125,10 +127,10 @@ If you only need Linux-side root, a WSL session's `sudo` needs no Windows elevat
 ## Troubleshooting
 
 - **Sidebar says "no hook signal yet"** — the status hooks aren't reaching the app. Usual causes: a custom `--settings` flag in Extra CLI args (it overrides the generated hook settings), or a proxy intercepting loopback traffic (the hook command uses `curl --noproxy "*"` to avoid this).
-- **Session stuck at "Starting"** — if the directory is new to Claude, its trust prompt appears in the terminal before hooks start firing; answer it in the pane.
+- **Session stuck at "Starting"** — if the directory is new to Claude, its trust prompt appears in the terminal before hooks start firing; answer it in the pane. After 45 seconds with no signal the session flips to "Needs you" and says so rather than sitting on "Starting" forever.
 - **`claude` not found** — ensure the Claude Code CLI is installed and on PATH, then restart the app.
 - **WSL option missing** — no distros detected (`wsl --list --quiet`); Docker/Rancher data distros are filtered out.
-- **Token counts missing** — usage is parsed from the transcript in `~/.claude/projects`; a nonstandard `CLAUDE_CONFIG_DIR` will hide it.
+- **Token counts missing** — usage is parsed from the transcript in `~/.claude/projects` (or `%CLAUDE_CONFIG_DIR%\projects` when that is set).
 - **"Restart as administrator" reports an error** — the UAC prompt was declined, or policy (AppLocker/WDAC, or UAC configured to deny elevation) blocked it. The current instance is left running untouched.
 
 ## Architecture (for maintainers)
