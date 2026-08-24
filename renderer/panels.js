@@ -153,11 +153,13 @@ window.GWT = window.GWT || {};
     const n = [...GWT.state.sessions.values()].filter((s) => s.status === 'attention').length;
     const ready = [...GWT.state.sessions.values()].filter((s) => s.status === 'ready').length;
     $('#attention-count').textContent = n ? `${n} need${n === 1 ? 's' : ''} you` : '';
-    document.title = n
-      ? `(${n} need${n === 1 ? 's' : ''} you) Mission Control`
-      : ready
-        ? `(${ready} ready) Mission Control`
-        : 'Mission Control';
+    const admin = GWT.state.elevated ? ' [Administrator]' : '';
+    document.title =
+      (n
+        ? `(${n} need${n === 1 ? 's' : ''} you) Mission Control`
+        : ready
+          ? `(${ready} ready) Mission Control`
+          : 'Mission Control') + admin;
   }
 
   // ---------------- workspace: files ----------------

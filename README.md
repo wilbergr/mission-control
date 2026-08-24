@@ -86,6 +86,21 @@ Previous sessions live at the bottom of the sidebar — click to **resume the ex
 
 Settings (bottom-left): app appearance (System / Dark / Light), default terminal color scheme, terminal font size, desktop notifications. 16 terminal schemes included (GitHub Dark, PowerShell blue, Ubuntu, Dracula, Nord, Solarized, One Half, Tango, …); the swatch icon on any pane overrides the scheme per-session, remembered across restarts.
 
+### Administrator mode
+
+Windows cannot elevate an individual terminal — a pseudo-console child always inherits the token of
+the process that created it — so an elevated *session* means an elevated *app*. **Settings →
+Privileges → Restart as administrator** relaunches Mission Control through UAC; every session created
+afterwards is elevated. While elevated, the sidebar shows an **ADMIN** badge and the window title ends
+with `[Administrator]`.
+
+Restarting closes all running sessions; Claude conversations can be resumed afterwards from Previous.
+Note that if you elevate using a *different* administrator account rather than approving the consent
+prompt as yourself, the app reads that account's profile — session history, preferences, and token
+usage will all appear empty.
+
+If you only need Linux-side root, a WSL session's `sudo` needs no Windows elevation at all.
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |
@@ -114,6 +129,7 @@ Settings (bottom-left): app appearance (System / Dark / Light), default terminal
 - **`claude` not found** — ensure the Claude Code CLI is installed and on PATH, then restart the app.
 - **WSL option missing** — no distros detected (`wsl --list --quiet`); Docker/Rancher data distros are filtered out.
 - **Token counts missing** — usage is parsed from the transcript in `~/.claude/projects`; a nonstandard `CLAUDE_CONFIG_DIR` will hide it.
+- **"Restart as administrator" reports an error** — the UAC prompt was declined, or policy (AppLocker/WDAC, or UAC configured to deny elevation) blocked it. The current instance is left running untouched.
 
 ## Architecture (for maintainers)
 

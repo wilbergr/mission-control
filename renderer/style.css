@@ -589,6 +589,25 @@ dialog label.check input[type="text"] { width: 180px; margin: 0 0 0 6px; }
 .sb-more:hover { color: var(--text); }
 
 .sb-head-btns { display: flex; gap: 4px; flex: none; }
+
+/* elevation badge — must read as a warning, not decoration */
+#admin-chip {
+  display: none;
+  margin: 0 auto 0 6px;
+  padding: 0 5px;
+  border: 1px solid #8a3030;
+  border-radius: 3px;
+  background: #5a2020;
+  color: #ffd7d7;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  flex: none;
+}
+#admin-chip.on { display: inline-block; }
+:root[data-ui="light"] #admin-chip { background: #ffe2e2; border-color: #d99a9a; color: #7a1414; }
+#set-elev-row { align-items: center; }
+#set-elev-state { color: var(--text); font-size: 12px; }
 #btn-settings { color: var(--text-dim); }
 #btn-settings:hover { color: var(--text); }
 #dlg-settings label select { display: block; margin-top: 3px; min-width: 220px; }

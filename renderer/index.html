@@ -13,6 +13,7 @@
     <aside id="sidebar">
       <div class="sb-head">
         <span class="logo">Mission&nbsp;Control</span>
+        <span id="admin-chip">ADMIN</span>
         <span class="sb-head-btns">
           <button id="btn-new" title="New session (Ctrl+Shift+N)" data-icon="plus"></button>
           <button id="btn-collapse-left" class="chev" title="Collapse sidebar" data-icon="chevsL"></button>
@@ -76,6 +77,7 @@
             <select id="nf-distro"></select>
           </label>
         </span>
+        <span id="nf-elev-hint" class="hint"></span>
       </label>
       <label>Directory
         <span class="row">
@@ -143,6 +145,16 @@
       <input id="set-notif" type="checkbox" checked />
       Desktop notifications when a session needs you
     </label>
+    <label>Privileges
+      <span class="row" id="set-elev-row">
+        <span id="set-elev-state"></span>
+        <button type="button" id="set-elevate">Restart as administrator</button>
+      </span>
+      <span class="hint">Sessions always run with Mission Control's own privileges, so an elevated
+        session means an elevated app. Restarting shows a UAC prompt and closes every running
+        session — Claude conversations can be resumed afterwards from Previous.</span>
+    </label>
+    <div id="set-elev-error" class="error"></div>
     <div class="dlg-buttons">
       <button id="settings-close" class="primary">Done</button>
     </div>

@@ -48,6 +48,7 @@ window.GWT = window.GWT || {};
     notifications: true,
     uiMode: 'system', // 'system' | 'dark' | 'light'
     layout: 'tiles', // 'tiles' | 'tabs'
+    elevated: false, // app-wide: every session inherits it (see main.js)
     history: [], // persisted session history (drives sidebar "Previous")
   };
 
@@ -210,6 +211,19 @@ window.GWT = window.GWT || {};
   });
   GWT.app = GWT.app || {};
   GWT.appUiLight = resolvedUiLight; // used by editor tiles created later
+
+  // Elevation applies to the whole app, so it is surfaced in chrome (badge +
+  // window title) rather than per session.
+  function applyElevationUi() {
+    const on = GWT.state.elevated;
+    const chip = $('#admin-chip');
+    chip.classList.toggle('on', on);
+    chip.title = on ? 'Mission Control is running with administrator privileges' : '';
+    $('#nf-elev-hint').textContent = on
+      ? 'Mission Control is running as administrator — every new session will be elevated.'
+      : "Sessions run with Mission Control's privileges. For an elevated session, use Settings → Restart as administrator.";
+    GWT.ui.updateAttentionCount(); // repaints the title-bar suffix
+  }
 
   function togglePanel(sel, force) {
     const el = $(sel);
@@ -518,6 +532,8 @@ window.GWT = window.GWT || {};
     applyUiMode();
     if (['tiles', 'tabs'].includes(prefs.layout)) GWT.state.layout = prefs.layout;
     applyLayout();
+    GWT.state.elevated = await window.gwt.app.isElevated();
+    applyElevationUi();
 
     // settings dialog
     const themeSel = $('#set-theme');
@@ -527,7 +543,29 @@ window.GWT = window.GWT || {};
       $('#set-font').value = GWT.state.fontSize;
       $('#set-notif').checked = GWT.state.notifications;
       $('#set-uimode').value = GWT.state.uiMode;
+      $('#set-elev-state').textContent = GWT.state.elevated
+        ? 'Running as administrator'
+        : 'Running as standard user';
+      $('#set-elevate').style.display = GWT.state.elevated ? 'none' : '';
+      $('#set-elev-error').textContent = '';
       $('#dlg-settings').showModal();
+    });
+    $('#set-elevate').addEventListener('click', async () => {
+      const choice = await GWT.ui.confirmDialog({
+        title: 'Restart as administrator?',
+        message:
+          'Windows cannot elevate a session on its own, so Mission Control has to relaunch itself. ' +
+          'You will get a UAC prompt, and every running session will be closed — Claude conversations ' +
+          'can be resumed afterwards from Previous.',
+        buttons: [
+          { label: 'Restart elevated', value: 'yes', primary: true },
+          { label: 'Cancel', value: null },
+        ],
+      });
+      if (!choice) return;
+      const r = await window.gwt.app.relaunchElevated();
+      // Success quits this instance, so only failures ever render here.
+      if (!r.ok) $('#set-elev-error').textContent = r.error || 'Could not restart as administrator.';
     });
     $('#set-uimode').addEventListener('change', () => {
       GWT.state.uiMode = $('#set-uimode').value;

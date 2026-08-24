@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld('gwt', {
     uiPrefs: () => ipcRenderer.invoke('app:uiPrefs'),
     saveUiPrefs: (ui) => ipcRenderer.invoke('app:saveUiPrefs', ui),
     setNativeTheme: (mode) => ipcRenderer.invoke('app:setNativeTheme', mode),
+    isElevated: () => ipcRenderer.invoke('app:isElevated'),
+    relaunchElevated: () => ipcRenderer.invoke('app:relaunchElevated'),
   },
   on: (channel, cb) => {
     if (!EVENT_CHANNELS.includes(channel)) throw new Error(`Unknown channel: ${channel}`);

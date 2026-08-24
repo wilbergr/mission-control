@@ -44,6 +44,8 @@ Events are pushed via `main.js`'s `send()`, which broadcasts to **every** Browse
 
 Because the renderer's `upsertSession` re-adds any id it sees, **a removed session must never emit again**. `remove()` sets `s.removed` before killing the PTY, and `_setStatus`/`onExit`/`_updateUsage` all check it — otherwise the late exit resurrects the sidebar entry, and the second `remove()` finds nothing in the map and emits nothing, leaving an entry that can't be closed. `remove()` also emits `removed` for ids it doesn't know, so a stale renderer entry can always be cleared.
 
+Elevation (`app:isElevated` / `app:relaunchElevated`) is deliberately **app-wide, not a session field**: Windows can't attach an elevated child to an existing ConPTY (`ShellExecute`'s `runas` verb takes no `STARTUPINFOEX` attribute list), so every PTY inherits the main process's token. Per-session elevation would need an elevated broker relaying a PTY over IPC — which is a local privilege-escalation surface, and would also make the generated `--settings` hooks file (a list of commands, written to user-writable `%APPDATA%`) an escalation vector for a high-integrity Claude. `relaunchElevated` persists state itself and sets `relaunching`, which suppresses the `before-quit` save so the incoming instance can't read a torn `state.json`.
+
 Launch options set through the friendly dropdowns (model, permission mode) are deliberately folded into the `extraArgs` string in `app.js`'s submit handler rather than kept as separate fields — that way they persist through history/restore like any other CLI arg. `initialPrompt` is the exception: it's passed positionally and never persisted, so restore/resume doesn't replay it.
 
 ### The grid: tiles are polymorphic

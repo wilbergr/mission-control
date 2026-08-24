@@ -14,6 +14,8 @@ let hookServer = null;
 let persistence = null;
 let watcher = null;
 let restorable = []; // sessions from the previous run, offered on startup
+let elevated = false; // this instance is running with admin privileges
+let relaunching = false; // relaunching elevated; state is already persisted
 
 app.setAppUserModelId('com.wilshire.missioncontrol');
 
@@ -52,6 +54,46 @@ function listWslDistros() {
           .filter((l) => l && !l.startsWith('docker-desktop'));
         resolve(names);
       }
+    );
+  });
+}
+
+// Elevation is a property of the whole app, not of a session: Windows cannot
+// attach an elevated child to an existing ConPTY (ShellExecute's "runas" verb
+// takes no STARTUPINFOEX attribute list), so every PTY inherits this process's
+// token. Wanting an elevated session therefore means relaunching the app.
+//
+// Detected from the integrity-level SID rather than group names, which are
+// localized: High (12288) = elevated, System (16384) = SYSTEM.
+function detectElevation() {
+  return new Promise((resolve) => {
+    execFile('whoami.exe', ['/groups'], { windowsHide: true }, (err, stdout) => {
+      resolve(!err && !!stdout && /S-1-16-(?:12288|16384)/.test(stdout));
+    });
+  });
+}
+
+// UAC can only elevate a fresh process, so this launches a second copy and the
+// caller quits this one. Declining the consent prompt makes powershell exit
+// non-zero, which leaves the current instance untouched.
+function relaunchElevated() {
+  return new Promise((resolve) => {
+    const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
+    // packaged: execPath *is* the app. dev: electron.exe needs the app path.
+    const argList = app.isPackaged ? '' : ` -ArgumentList ${q(app.getAppPath())}`;
+    const cmd =
+      `try { Start-Process -FilePath ${q(process.execPath)}${argList} ` +
+      `-Verb RunAs -ErrorAction Stop } catch { exit 1 }`;
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-Command', cmd],
+      { windowsHide: true },
+      (err, _stdout, stderr) =>
+        resolve(
+          err
+            ? { ok: false, error: (stderr || '').trim() || 'Elevation was declined or failed.' }
+            : { ok: true }
+        )
     );
   });
 }
@@ -121,6 +163,7 @@ async function init() {
   const prev = persistence.load();
   restorable = prev.sessions || [];
 
+  elevated = await detectElevation();
   const claudePath = await resolveClaudePath();
   manager = new SessionManager({
     hooksDir: path.join(app.getPath('userData'), 'hooks'),
@@ -280,15 +323,37 @@ function registerIpc() {
   });
   ipcMain.handle('app:uiPrefs', () => persistence.load().ui || {});
   ipcMain.handle('app:saveUiPrefs', (_e, ui) => saveState(ui));
+
+  ipcMain.handle('app:isElevated', () => elevated);
+  ipcMain.handle('app:relaunchElevated', async () => {
+    if (elevated) return { ok: false, error: 'Already running as administrator.' };
+    // Persist now rather than in before-quit: the elevated instance may finish
+    // loading state.json before this one has torn down.
+    clearTimeout(saveTimer);
+    const prev = persistence.load();
+    persistence.save({
+      sessions: persistence.snapshotSessions(manager),
+      history: persistence.mergeHistory(prev.history, manager.list()),
+      ui: prev.ui || {},
+    });
+    const r = await relaunchElevated();
+    if (r.ok) {
+      relaunching = true;
+      app.quit();
+    }
+    return r;
+  });
 }
 
 app.whenReady().then(init);
 
 app.on('before-quit', () => {
-  // persist final state synchronously-ish before teardown
+  // persist final state synchronously-ish before teardown. Skipped when
+  // relaunching elevated: that path already saved, and writing again could tear
+  // the read the incoming instance is making right now.
   clearTimeout(saveTimer);
-  const prev = persistence ? persistence.load() : { ui: {} };
-  if (persistence && manager) {
+  if (persistence && manager && !relaunching) {
+    const prev = persistence.load();
     persistence.save({
       sessions: persistence.snapshotSessions(manager),
       history: persistence.mergeHistory(prev.history, manager.list()),
