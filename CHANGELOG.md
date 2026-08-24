@@ -1,0 +1,79 @@
+# Changelog
+
+All notable changes to Mission Control.
+
+## 1.3.0 — 2026-08-24
+
+Also includes the changes prepared for 1.2.0, which was not distributed.
+
+### Added
+
+- **Administrator mode.** Some work needs an elevated terminal. Windows cannot
+  elevate an individual terminal — a session always runs with the privileges of
+  the app that started it — so **Settings → Privileges → Restart as
+  administrator** relaunches Mission Control itself through a Windows elevation
+  prompt. Every session created afterwards is elevated.
+
+  While elevated, the sidebar shows a red **ADMIN** badge and the window title
+  ends with `[Administrator]`, so an elevated window is never mistaken for an
+  ordinary one.
+
+  Restarting closes all running sessions. Claude conversations can be resumed
+  afterwards from **Previous**; plain shell sessions cannot.
+
+  If you only need root inside Linux, a WSL session's `sudo` works without
+  elevating Mission Control at all.
+
+### Fixed
+
+- **Closing a session could leave an entry that refused to go away.** Clicking
+  the **X** on a running session removed its tile, but the sidebar entry came
+  back as "Exited" and further clicks did nothing, leaving a row stuck there for
+  the rest of the session. The entry is now removed properly, and any row
+  already stuck in a running window clears on the next click.
+
+- **Previous filled up with duplicate rows.** Each launch of a conversation
+  added another entry, and sessions already listed as running could appear a
+  second time under Previous. History now keeps one entry per session name, and
+  Previous no longer repeats a session shown above it.
+
+  As a consequence, several concurrent sessions in the same folder share a
+  single history entry unless you rename them.
+
+- **Sessions could sit on "Starting" forever.** Resuming a conversation that no
+  longer existed, or continuing in a directory with no history, left Claude
+  waiting silently with no indication of what went wrong. Mission Control now
+  checks first and starts a fresh conversation in the same directory instead,
+  explaining what it did on an amber line in the sidebar. As a backstop, a
+  session that reports nothing at all within 45 seconds switches to **Needs
+  you** with an explanation rather than appearing to start indefinitely.
+
+- **Token usage was missing when Claude's configuration lived outside the
+  default location.** Usage is now read correctly when `CLAUDE_CONFIG_DIR` is
+  set.
+
+### Changed
+
+- **Sharper app icon.** The icon now carries every standard Windows size, so it
+  renders cleanly in the taskbar, Alt-Tab, window corners and at large sizes in
+  Explorer.
+
+- **Faster, quieter startup.** Locating the Claude CLI and determining whether
+  the app is running as administrator no longer launch external helper programs;
+  both are now resolved inside the app. Launch is slightly faster and involves
+  fewer interactions with endpoint security software.
+
+- **WSL distributions are detected on first use.** The list is built the first
+  time you open the New Session dialog, rather than on every launch, and is then
+  reused. Machines without WSL are skipped entirely.
+
+### Note on the installation prompt
+
+Mission Control is distributed unsigned, so Windows shows an "Unknown publisher"
+elevation prompt when you run the installer, and again if you use **Restart as
+administrator**. Confirm the file came from the expected internal location
+before accepting.
+
+## 1.1.0
+
+Previous release.
