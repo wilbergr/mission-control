@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, Notification, shell, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Notification, shell, nativeTheme, clipboard } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
@@ -373,6 +373,14 @@ function registerIpc() {
   });
   ipcMain.handle('app:uiPrefs', () => persistence.load().ui || {});
   ipcMain.handle('app:saveUiPrefs', (_e, ui) => saveState(ui));
+
+  // Terminal copy/paste. xterm has no clipboard of its own, and the async
+  // clipboard API is unreliable from a file:// origin under this CSP, so both
+  // directions go through Electron's clipboard module.
+  ipcMain.handle('app:clipboardRead', () => clipboard.readText());
+  ipcMain.on('app:clipboardWrite', (_e, text) => {
+    if (text) clipboard.writeText(String(text));
+  });
 
   ipcMain.handle('app:isElevated', () => elevated);
   ipcMain.handle('app:relaunchElevated', async () => {

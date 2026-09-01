@@ -65,6 +65,10 @@ When a session needs a choice (permission prompt, multiple-choice question, plan
 - Hide a pane from the grid without killing it (eye icon in the sidebar)
 - **Pop out** any terminal or editor into its own window (arrow-out icon); **Dock** (or just close the window) brings it back into the grid. A popped-out terminal is a live mirror — you can type in either place
 - Search inside a terminal with `Ctrl+Shift+F`
+- Select with the mouse and `Ctrl+C` to copy, `Ctrl+V` to paste. `Ctrl+C` only
+  copies when something is selected — with no selection it still interrupts,
+  as a terminal should. Use `Ctrl+Shift+C` / `Ctrl+Shift+V` when you want
+  copy/paste with no chance of sending an interrupt
 
 ### Broadcast bar
 
@@ -114,6 +118,9 @@ If you only need Linux-side root, a WSL session's `sudo` needs no Windows elevat
 | `Ctrl+Shift+B` | Focus the broadcast input |
 | `Ctrl+Shift+E` | Toggle right panel |
 | `Ctrl+Shift+F` | Search in focused terminal |
+| `Ctrl+C` | Copy the selection — or interrupt, when nothing is selected |
+| `Ctrl+V` | Paste into the terminal |
+| `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / paste, never interrupts |
 | `Ctrl+S` | Save (in editors) |
 | `Ctrl+Shift+D` | Dock a popped-out terminal |
 

@@ -40,6 +40,32 @@
     const fit = new XFit();
     term.loadAddon(fit);
     term.open(document.getElementById('term'));
+
+    // Same clipboard convention as the tiled panes (see panes.js): Ctrl+C
+    // copies a selection and otherwise falls through to the interrupt, Ctrl+V
+    // pastes, Ctrl+Shift+C/V are unambiguous aliases. Ctrl+Shift+D is handled
+    // by the window-level capture listener below, so it is swallowed here.
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type !== 'keydown' || !ev.ctrlKey || ev.altKey) return true;
+      if (ev.shiftKey && ev.code === 'KeyD') return false;
+      if (ev.code === 'KeyC') {
+        const sel = term.getSelection();
+        if (sel) {
+          window.gwt.app.clipboardWrite(sel);
+          term.clearSelection();
+          return false;
+        }
+        return !ev.shiftKey;
+      }
+      if (ev.code === 'KeyV') {
+        window.gwt.app.clipboardRead().then((text) => {
+          if (text) term.paste(text);
+        });
+        return false;
+      }
+      return true;
+    });
+
     term.onData((d) => window.gwt.sessions.write(id, d));
     term.onResize(({ cols, rows }) => window.gwt.sessions.resize(id, cols, rows));
 

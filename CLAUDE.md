@@ -80,6 +80,7 @@ Because a hidden tile keeps receiving output sized for the pop-out window, re-do
 ### Renderer conventions
 
 - Markup carries `data-icon="name"`; `GWT.icons.apply(root)` injects the SVG from `icons.js` after any dynamic `innerHTML`. No emoji in the UI.
+- Terminal clipboard keys live in `attachCustomKeyEventHandler`, which returns whether the event continues on to the PTY. `Ctrl+C` copies **only when there is a selection** — with none it must fall through, or the shell loses SIGINT; `Ctrl+Shift+C` is swallowed either way so it can't fire a surprise interrupt. Paste uses `term.paste()`, not `sessions.write`, so the running program's bracketed-paste mode is honored and a multi-line paste stays one input in Claude. The logic is duplicated in `panes.js` and `term.js` because pop-outs don't load `panes.js` (same reason `STATUS_LABEL` is duplicated).
 - All colors come from CSS variables in `style.css`, defined twice: `:root` (dark) and `:root[data-ui="light"]`. `applyUiMode()` sets `documentElement.dataset.ui`, tells Monaco (`vs`/`vs-dark`) and `nativeTheme`. Terminal color schemes are a separate axis — `themes.js`, global default with a per-session override stored on the session in main.
 - `index.html` has a strict CSP (`default-src 'self'`), so remote/CDN assets won't load; vendor code is referenced by relative path into `node_modules`. Anything newly referenced that way must also survive electron-builder's `files` filter in `package.json`.
 - `window.prompt` doesn't exist in Electron — use `textPrompt()` (app.js) and `GWT.ui.confirmDialog()`.

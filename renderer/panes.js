@@ -37,6 +37,37 @@ window.GWT = window.GWT || {};
     return p.length <= max ? p : '…' + p.slice(p.length - max + 1);
   }
 
+  // Ctrl+C is ambiguous in a terminal — it means both "copy" and SIGINT. Follow
+  // the Windows Terminal convention: copy when text is selected, otherwise fall
+  // through so the interrupt still reaches the shell. Ctrl+Shift+C/V are
+  // unambiguous aliases, and Ctrl+Shift+C is swallowed even with nothing
+  // selected so it can never fire an unexpected interrupt.
+  //
+  // Paste goes through term.paste() rather than a raw PTY write so the running
+  // program's bracketed-paste mode is honored — that keeps a multi-line paste
+  // as one input in Claude instead of submitting on every newline.
+  //
+  // Returns whether the event should continue on to the PTY.
+  function handleClipboardKey(ev, term) {
+    if (!ev.ctrlKey || ev.altKey) return true;
+    if (ev.code === 'KeyC') {
+      const sel = term.getSelection();
+      if (sel) {
+        window.gwt.app.clipboardWrite(sel);
+        term.clearSelection();
+        return false;
+      }
+      return !ev.shiftKey; // bare Ctrl+C with no selection must still interrupt
+    }
+    if (ev.code === 'KeyV') {
+      window.gwt.app.clipboardRead().then((text) => {
+        if (text) term.paste(text);
+      });
+      return false;
+    }
+    return true;
+  }
+
   async function createPane(info) {
     if (panes.has(info.id)) return;
     const el = document.createElement('div');
@@ -103,7 +134,8 @@ window.GWT = window.GWT || {};
         (ev.ctrlKey && ev.shiftKey &&
           ['KeyN', 'KeyZ', 'KeyB', 'KeyE', 'KeyF', 'KeyT', 'ArrowLeft', 'ArrowRight'].includes(ev.code)) ||
         (ev.altKey && /^Digit[1-9]$/.test(ev.code));
-      return !global;
+      if (global) return false;
+      return handleClipboardKey(ev, term);
     });
 
     term.onData((d) => window.gwt.sessions.write(info.id, d));

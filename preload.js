@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld('gwt', {
     uiPrefs: () => ipcRenderer.invoke('app:uiPrefs'),
     saveUiPrefs: (ui) => ipcRenderer.invoke('app:saveUiPrefs', ui),
     setNativeTheme: (mode) => ipcRenderer.invoke('app:setNativeTheme', mode),
+    clipboardRead: () => ipcRenderer.invoke('app:clipboardRead'),
+    clipboardWrite: (text) => ipcRenderer.send('app:clipboardWrite', text),
     isElevated: () => ipcRenderer.invoke('app:isElevated'),
     relaunchElevated: () => ipcRenderer.invoke('app:relaunchElevated'),
   },
