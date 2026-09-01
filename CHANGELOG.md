@@ -2,6 +2,31 @@
 
 All notable changes to Mission Control.
 
+Mission Control is distributed unsigned, so Windows shows an "Unknown publisher"
+elevation prompt when you run the installer, and again if you use **Restart as
+administrator**. Confirm the file came from the expected internal location before
+accepting.
+
+## 1.3.1 — 2026-08-24
+
+### Added
+
+- **Copy and paste in terminals.** Select with the mouse and press `Ctrl+C` to
+  copy; `Ctrl+V` pastes. Previously there was no way to get text into or out of
+  a PowerShell or WSL terminal.
+
+  `Ctrl+C` copies only when something is selected — with nothing selected it
+  still interrupts whatever is running, as a terminal should, so you do not lose
+  the ability to stop a runaway command. If you would rather never risk sending
+  an interrupt, `Ctrl+Shift+C` and `Ctrl+Shift+V` always mean copy and paste.
+
+  Pasting several lines into a Claude session stays a single message rather than
+  submitting on every line break. Note that pasting several lines into a plain
+  PowerShell or WSL shell runs each line, exactly as it would in any other
+  terminal — check what you are pasting first.
+
+  Works in tiled panes and in popped-out terminal windows.
+
 ## 1.3.0 — 2026-08-24
 
 Also includes the changes prepared for 1.2.0, which was not distributed.
@@ -66,13 +91,6 @@ Also includes the changes prepared for 1.2.0, which was not distributed.
 - **WSL distributions are detected on first use.** The list is built the first
   time you open the New Session dialog, rather than on every launch, and is then
   reused. Machines without WSL are skipped entirely.
-
-### Note on the installation prompt
-
-Mission Control is distributed unsigned, so Windows shows an "Unknown publisher"
-elevation prompt when you run the installer, and again if you use **Restart as
-administrator**. Confirm the file came from the expected internal location
-before accepting.
 
 ## 1.1.0
 
