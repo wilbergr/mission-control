@@ -43,9 +43,9 @@ window.GWT = window.GWT || {};
   // unambiguous aliases, and Ctrl+Shift+C is swallowed even with nothing
   // selected so it can never fire an unexpected interrupt.
   //
-  // Paste goes through term.paste() rather than a raw PTY write so the running
-  // program's bracketed-paste mode is honored — that keeps a multi-line paste
-  // as one input in Claude instead of submitting on every newline.
+  // Copy has to be implemented here: xterm draws its own selection rather than
+  // using a DOM selection, so the browser's copy action has nothing to take.
+  // Paste must NOT be implemented here — see the KeyV branch.
   //
   // Returns whether the event should continue on to the PTY.
   function handleClipboardKey(ev, term) {
@@ -53,16 +53,23 @@ window.GWT = window.GWT || {};
     if (ev.code === 'KeyC') {
       const sel = term.getSelection();
       if (sel) {
+        ev.preventDefault();
         window.gwt.app.clipboardWrite(sel);
         term.clearSelection();
         return false;
       }
-      return !ev.shiftKey; // bare Ctrl+C with no selection must still interrupt
+      if (ev.shiftKey) return false; // copy-only: must never fall through to SIGINT
+      return true; // bare Ctrl+C with no selection must still interrupt
     }
     if (ev.code === 'KeyV') {
-      window.gwt.app.clipboardRead().then((text) => {
-        if (text) term.paste(text);
-      });
+      // Swallow the key and do nothing else. xterm already registers its own
+      // DOM 'paste' listener, so the browser's paste action lands there and
+      // pastes exactly once, honoring bracketed-paste mode (a multi-line paste
+      // stays one message in Claude). Returning false is still required: it
+      // stops xterm from mapping Ctrl+V to a literal ^V for the PTY *and* from
+      // calling preventDefault(), which is what used to suppress the browser's
+      // paste and make paste look broken. Pasting here as well -- via
+      // term.paste() or a PTY write -- delivers the clipboard twice.
       return false;
     }
     return true;

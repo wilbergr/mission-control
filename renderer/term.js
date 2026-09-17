@@ -51,16 +51,17 @@
       if (ev.code === 'KeyC') {
         const sel = term.getSelection();
         if (sel) {
+          ev.preventDefault();
           window.gwt.app.clipboardWrite(sel);
           term.clearSelection();
           return false;
         }
-        return !ev.shiftKey;
+        if (ev.shiftKey) return false;
+        return true;
       }
       if (ev.code === 'KeyV') {
-        window.gwt.app.clipboardRead().then((text) => {
-          if (text) term.paste(text);
-        });
+        // Swallowed only; xterm's own DOM 'paste' listener does the paste.
+        // Pasting here too would deliver the clipboard twice (see panes.js).
         return false;
       }
       return true;

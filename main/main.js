@@ -374,10 +374,10 @@ function registerIpc() {
   ipcMain.handle('app:uiPrefs', () => persistence.load().ui || {});
   ipcMain.handle('app:saveUiPrefs', (_e, ui) => saveState(ui));
 
-  // Terminal copy/paste. xterm has no clipboard of its own, and the async
-  // clipboard API is unreliable from a file:// origin under this CSP, so both
-  // directions go through Electron's clipboard module.
-  ipcMain.handle('app:clipboardRead', () => clipboard.readText());
+  // Terminal copy only. Paste is left entirely to xterm's own DOM 'paste'
+  // listener; adding a second path here is what caused a double paste. Copy
+  // needs help because xterm draws its own selection rather than using a DOM
+  // selection, so there is nothing for the browser's copy action to pick up.
   ipcMain.on('app:clipboardWrite', (_e, text) => {
     if (text) clipboard.writeText(String(text));
   });

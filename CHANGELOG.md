@@ -7,7 +7,15 @@ elevation prompt when you run the installer, and again if you use **Restart as
 administrator**. Confirm the file came from the expected internal location before
 accepting.
 
-## 1.3.1 — 2026-08-24
+## 1.3.2 — 2026-09-17
+
+### Fixed
+
+- **Pasting into a terminal inserted the text twice.** `Ctrl+V` was delivering
+  the clipboard through two paths at once. It now pastes exactly once. Affects
+  1.3.1 only; if you are on 1.3.1, install this build.
+
+## 1.3.1 — 2026-09-01
 
 ### Added
 
