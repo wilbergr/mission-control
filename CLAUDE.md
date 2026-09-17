@@ -56,6 +56,22 @@ Because the renderer's `upsertSession` re-adds any id it sees, **a removed sessi
 
 **Session history is one entry per name.** Claude mints a new conversation uuid on every launch, so keying history on the uuid grew a fresh "Previous" row per run. `dedupeByName` (persistence.js) collapses on lower-cased name, newest `lastUsed` winning; it runs in `load()` (heals old files), at the end of `mergeHistory`, and after `app:historyRename`. `mergeHistory`'s lookup chain also matches by name so an entry is reused *in place*, keeping `hid` stable. Consequence: several concurrent sessions on one folder share one history entry unless renamed.
 
+**History order is the user's, not recency.** Previous is drag-reorderable, so array position in `state.history` *is* the display order. Three rules keep that from being undone:
+
+- `mergeHistory` must **never** sort by `lastUsed`. It runs on every save (any status change, 400 ms debounce), so a sort there wipes a manual reorder within a second of making it. New entries are `unshift`ed to the top; reused entries are updated in place.
+- `capHistory` trims to `MAX_HISTORY` by evicting the **least recently used**, not the tail. Evicting by position would make anything deliberately dragged to the bottom the first casualty.
+- `reorderHistory(hist, orderedHids)` writes the reordered entries back into the *same array slots* they already occupied. The renderer only sees Previous entries (live sessions are filtered out of that list), so entries hidden behind a running session keep their exact index and reappear where the user left them. A request whose hid count doesn't match is treated as stale and ignored.
+
+The drag handlers live in `panels.js` (`makeReorderable`). The row itself is the drag handle, so the click that relaunches a session is guarded by a `prevDragEndedAt` timestamp — a stray click there spawns a process.
+
+**A Previous group is only a `group` string on an entry — there is no group object.** That keeps array order as the single source of truth: a group's position is derived from where its first member sits, so `renderPreviousSection` buckets by group and renders each bucket at the position of its first entry, with ungrouped last. Consequences, all deliberate:
+
+- No empty groups. A group exists exactly as long as something carries its name, so emptying one removes it.
+- Renaming (`renameHistoryGroup`) is a rewrite across every member — the cost of not having group objects.
+- `mergeHistory` assigns a **fixed field list** onto a reused entry. `group` is deliberately not in that list, so it survives a relaunch; adding it would silently ungroup a session every time you reopened it.
+- Drag has one rule: an entry adopts the group of whatever it is dropped next to (a header drop means that header's group). Creating a *new* group is the only thing a drag can't express, hence the folder button on each row. `app:historyMove` does the group change and the reorder in one call, so a drag is one save and one re-render.
+- Collapsed group names are a **UI pref** (`ui.prevCollapsed`), not history — collapse is a view state and shouldn't travel with the data.
+
 The sidebar's Previous section must never re-list a session already shown above it. `renderPreviousSection` filters on `h.runKey` being a current session id — not `claudeSessionId`, which is null until the first hook, and not "live only", since an exited session is still listed above. Both of those holes produced permanent duplicate rows.
 
 Elevation (`app:isElevated` / `app:relaunchElevated`) is deliberately **app-wide, not a session field**: Windows can't attach an elevated child to an existing ConPTY (`ShellExecute`'s `runas` verb takes no `STARTUPINFOEX` attribute list), so every PTY inherits the main process's token. Per-session elevation would need an elevated broker relaying a PTY over IPC — which is a local privilege-escalation surface, and would also make the generated `--settings` hooks file (a list of commands, written to user-writable `%APPDATA%`) an escalation vector for a high-integrity Claude. `relaunchElevated` persists state itself and sets `relaunching`, which suppresses the `before-quit` save so the incoming instance can't read a torn `state.json`.

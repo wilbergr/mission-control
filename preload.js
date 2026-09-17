@@ -50,6 +50,8 @@ contextBridge.exposeInMainWorld('gwt', {
     history: () => ipcRenderer.invoke('app:history'),
     historyRemove: (hid) => ipcRenderer.invoke('app:historyRemove', hid),
     historyRename: (hid, name) => ipcRenderer.invoke('app:historyRename', { hid, name }),
+    historyMove: (hid, group, order) => ipcRenderer.invoke('app:historyMove', { hid, group, order }),
+    historyRenameGroup: (from, to) => ipcRenderer.invoke('app:historyRenameGroup', { from, to }),
     openEditor: (file) => ipcRenderer.invoke('editor:open', file),
     dockEditor: (file) => ipcRenderer.invoke('editor:dock', file),
     uiPrefs: () => ipcRenderer.invoke('app:uiPrefs'),

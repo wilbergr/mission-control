@@ -88,6 +88,27 @@ Previous sessions live at the bottom of the sidebar — click to **resume the ex
 
 If the saved conversation can't be found (transcript deleted, directory moved, worktree removed), the session starts fresh in the same directory instead of hanging, and says so in the sidebar.
 
+**Drag any Previous entry to reorder the list.** The order is yours and is remembered
+across restarts — the list is no longer sorted by how recently you used something.
+Newly used sessions appear at the top so they're easy to find, without disturbing
+anything you've placed. When the 50-entry limit is reached the *least recently used*
+entry is dropped, wherever it happens to sit in your ordering, so parking a favourite
+at the bottom won't make it the first thing to go.
+
+**Group them by name.** The folder icon on a Previous entry sets its group — type a new
+name to create one, or leave it blank to ungroup. Groups show up as collapsible headers
+with a count; click a header to collapse it (remembered across restarts), and the rename
+button on a header renames the group for every session in it.
+
+Dragging is the quicker way to move things around: **an entry joins the group of
+whatever you drop it next to**, and dropping onto a group header puts it at the top of
+that group. Drop it next to an ungrouped session, or onto the *Ungrouped* header, to
+take it out of its group again.
+
+A group exists only as long as something is in it — there are no empty groups, so
+emptying one makes it disappear. Group order follows your ordering of the sessions
+inside them.
+
 ### Appearance
 
 Settings (bottom-left): app appearance (System / Dark / Light), default terminal color scheme, terminal font size, desktop notifications. 16 terminal schemes included (GitHub Dark, PowerShell blue, Ubuntu, Dracula, Nord, Solarized, One Half, Tango, …); the swatch icon on any pane overrides the scheme per-session, remembered across restarts.

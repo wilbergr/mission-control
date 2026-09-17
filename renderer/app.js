@@ -50,6 +50,7 @@ window.GWT = window.GWT || {};
     layout: 'tiles', // 'tiles' | 'tabs'
     elevated: false, // app-wide: every session inherits it (see main.js)
     history: [], // persisted session history (drives sidebar "Previous")
+    prevCollapsed: new Set(), // collapsed Previous group names (a UI pref, not history)
   };
 
   // ---------------- session actions ----------------
@@ -172,6 +173,7 @@ window.GWT = window.GWT || {};
       notifications: GWT.state.notifications,
       uiMode: GWT.state.uiMode,
       layout: GWT.state.layout,
+      prevCollapsed: [...GWT.state.prevCollapsed],
     });
   }
 
@@ -277,6 +279,35 @@ window.GWT = window.GWT || {};
     GWT.ui.renderSidebar();
   }
 
+  // After a drag: the entry adopts the group it landed in, and `hids` is the
+  // order the sidebar now shows. Either half may be a no-op.
+  async function moveHistory(hid, group, hids) {
+    GWT.state.history = await window.gwt.app.historyMove(hid, group, hids);
+    GWT.ui.renderSidebar();
+  }
+
+  /** Prompt for a group name; blank ungroups. */
+  async function setHistoryGroup(hid, current) {
+    const name = await textPrompt('Group (leave blank for none)', current || '');
+    if (name === null) return;
+    await moveHistory(hid, name.trim(), null);
+  }
+
+  async function renameHistoryGroup(from) {
+    const name = await textPrompt('Rename group (blank ungroups its sessions)', from);
+    if (name === null || name.trim() === from) return;
+    GWT.state.history = await window.gwt.app.historyRenameGroup(from, name.trim());
+    GWT.ui.renderSidebar();
+  }
+
+  function togglePrevGroup(name) {
+    const c = GWT.state.prevCollapsed;
+    if (c.has(name)) c.delete(name);
+    else c.add(name);
+    saveUiPrefs();
+    GWT.ui.renderSidebar();
+  }
+
   async function renameHistory(hid, currentName) {
     const name = await textPrompt('Rename previous session', currentName);
     if (!name || !name.trim()) return;
@@ -287,6 +318,7 @@ window.GWT = window.GWT || {};
   GWT.app = {
     focusSession, closeSession, toggleGridVisibility, toggleZoom, renameSession,
     saveUiPrefs, launchHistory, removeHistory, renameHistory,
+    moveHistory, setHistoryGroup, renameHistoryGroup, togglePrevGroup,
   };
 
   // ---------------- new session dialog ----------------
@@ -537,6 +569,7 @@ window.GWT = window.GWT || {};
     GWT.state.notifications = prefs.notifications !== false;
     if (['system', 'dark', 'light'].includes(prefs.uiMode)) GWT.state.uiMode = prefs.uiMode;
     applyUiMode();
+    if (Array.isArray(prefs.prevCollapsed)) GWT.state.prevCollapsed = new Set(prefs.prevCollapsed);
     if (['tiles', 'tabs'].includes(prefs.layout)) GWT.state.layout = prefs.layout;
     applyLayout();
     GWT.state.elevated = await window.gwt.app.isElevated();

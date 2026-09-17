@@ -31,6 +31,7 @@ window.GWT = window.GWT || {};
       '<rect x="7" y="7" width="4.5" height="4.5" rx="1" fill="currentColor" stroke="none" opacity=".82"/>'
     ),
     edit: S('<path d="M8.4 1.6l2 2L4.2 9.8 1.8 10.2l.4-2.4z"/>'),
+    folder: S('<path d="M1.5 10.2V2.6h3.3l1.2 1.6h4.5v6z"/>'),
     tiles: S('<rect x="1.5" y="1.5" width="4" height="4" rx="0.5"/><rect x="6.5" y="1.5" width="4" height="4" rx="0.5"/><rect x="1.5" y="6.5" width="4" height="4" rx="0.5"/><rect x="6.5" y="6.5" width="4" height="4" rx="0.5"/>'),
     tabs: S('<path d="M1.5 4.5V3h4l1 1.5h4v6h-9z"/><path d="M1.5 4.5h9"/>'),
     keyUp: S('<path d="M6 10V2M2.8 5.2L6 2l3.2 3.2"/>'),

@@ -13,7 +13,13 @@ const WSL_EXE = path.join(SYS32, 'wsl.exe');
 const { HookServer } = require('./hook-server');
 const { SessionManager } = require('./session-manager');
 const ws = require('./workspace');
-const { Persistence, dedupeByName } = require('./persistence');
+const {
+  Persistence,
+  dedupeByName,
+  reorderHistory,
+  setHistoryGroup,
+  renameHistoryGroup,
+} = require('./persistence');
 
 let win = null;
 let manager = null;
@@ -368,6 +374,26 @@ function registerIpc() {
     if (entry && String(name || '').trim()) entry.name = String(name).trim();
     // renaming onto an existing name must not leave two entries behind
     state.history = dedupeByName(state.history);
+    persistence.save(state);
+    return state.history;
+  });
+  // One handler for both halves of a drag: an entry adopts the group it was
+  // dropped into, and the list takes the order the sidebar now shows. Doing it
+  // in one call keeps it to a single save and a single re-render. `hids` is the
+  // order the sidebar displays; mergeHistory preserves array order, so it
+  // survives subsequent saves.
+  ipcMain.handle('app:historyMove', (_e, { hid, group, order } = {}) => {
+    const state = persistence.load();
+    let hist = state.history || [];
+    if (hid) hist = setHistoryGroup(hist, hid, group);
+    if (order && order.length > 1) hist = reorderHistory(hist, order);
+    state.history = hist;
+    persistence.save(state);
+    return state.history;
+  });
+  ipcMain.handle('app:historyRenameGroup', (_e, { from, to }) => {
+    const state = persistence.load();
+    state.history = renameHistoryGroup(state.history || [], from, to);
     persistence.save(state);
     return state.history;
   });

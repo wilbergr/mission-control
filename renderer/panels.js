@@ -77,8 +77,82 @@ window.GWT = window.GWT || {};
     renderTabbar();
   }
 
+  // Drag state for reordering Previous. `prevDragEndedAt` guards the item's
+  // click handler: a stray click after a drag would relaunch a session, which
+  // spawns a process, so it is worth being defensive about.
+  let prevDragHid = null;
+  let prevDragEndedAt = 0;
+
+  const prevItems = () => [...document.querySelectorAll('#session-list .sess.prev')];
+
+  function clearDropTargets() {
+    for (const n of prevItems()) n.classList.remove('drop-target');
+  }
+
+  // Whole-item drag rather than a small grip: the row is the target users will
+  // reach for, and the click guard above makes it safe.
+  //
+  // One rule covers grouping: an entry adopts the group of whatever it is
+  // dropped next to. Dropping onto a group header joins that group; dropping
+  // onto an ungrouped row leaves the group. Creating a *new* group is the only
+  // thing a drag can't express, hence the folder button on each row.
+  function makeReorderable(item, hid, group) {
+    item.draggable = true;
+    item.dataset.hid = hid;
+    item.dataset.group = group || '';
+    item.addEventListener('dragstart', (e) => {
+      prevDragHid = hid;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/gwt-prev', hid);
+      item.classList.add('dragging');
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      prevDragHid = null;
+      prevDragEndedAt = Date.now();
+      clearDropTargets();
+    });
+    item.addEventListener('dragover', (e) => {
+      if (!prevDragHid || prevDragHid === hid) return;
+      e.preventDefault();
+      item.classList.add('drop-target');
+    });
+    item.addEventListener('dragleave', () => item.classList.remove('drop-target'));
+    item.addEventListener('drop', (e) => {
+      item.classList.remove('drop-target');
+      if (!prevDragHid || prevDragHid === hid) return;
+      e.preventDefault();
+      const from = prevItems().find((n) => n.dataset.hid === prevDragHid);
+      if (!from) return;
+      const before = prevItems();
+      // insert after when dragging downward, before when dragging upward
+      if (before.indexOf(from) < before.indexOf(item)) item.after(from);
+      else item.before(from);
+      GWT.app.moveHistory(prevDragHid, item.dataset.group || '', prevItems().map((n) => n.dataset.hid));
+    });
+  }
+
+  // Dropping on a header puts the entry at the top of that group.
+  function makeGroupDropTarget(head, group) {
+    head.addEventListener('dragover', (e) => {
+      if (!prevDragHid) return;
+      e.preventDefault();
+      head.classList.add('drop-target');
+    });
+    head.addEventListener('dragleave', () => head.classList.remove('drop-target'));
+    head.addEventListener('drop', (e) => {
+      head.classList.remove('drop-target');
+      if (!prevDragHid) return;
+      e.preventDefault();
+      const from = prevItems().find((n) => n.dataset.hid === prevDragHid);
+      if (!from) return;
+      head.after(from);
+      GWT.app.moveHistory(prevDragHid, group, prevItems().map((n) => n.dataset.hid));
+    });
+  }
+
   // Previous sessions (persisted history) live below the running ones —
-  // click to relaunch/resume, no startup dialog needed.
+  // click to relaunch/resume, no startup dialog needed. Drag to reorder.
   function renderPreviousSection(list) {
     // A session already listed above must never appear here as well. Match on
     // runKey (the session id its history entry was last written for) rather than
@@ -102,50 +176,111 @@ window.GWT = window.GWT || {};
     head.textContent = 'Previous';
     list.appendChild(head);
 
+    // Bucket by group, keeping each group in the position of its first member
+    // so group order follows the user's manual ordering rather than an
+    // independent list. Ungrouped entries render last.
+    const buckets = new Map(); // group name ('' = ungrouped) -> entries
     for (const h of prev) {
-      const item = el('div', 'sess prev');
-      const resumable = h.kind === 'claude' && h.claudeSessionId;
-      item.innerHTML = `
-        <div class="row1">
-          <span class="dot exited"></span>
-          <span class="name">${esc(h.name)}</span>
-          <span class="idx">${GWT.util.fmtAgo(h.lastUsed)}</span>
-        </div>
-        <div class="statusline">
-          <span>${h.kind}${h.distro ? ':' + esc(h.distro) : ''}</span>
-          <span>${resumable ? '· resumable' : ''}</span>
-        </div>
-        <div class="cwd" title="${esc(h.cwd)}">${esc(h.cwd)}</div>
-        <div class="btns">
-          <button class="b-hrename" title="Rename" data-icon="edit"></button>
-          ${resumable ? '<button class="b-fresh" title="Launch fresh (same directory, new conversation)" data-icon="refresh"></button>' : ''}
-          <button class="b-del" title="Remove from history" data-icon="close"></button>
-        </div>`;
-      GWT.icons.apply(item);
-      item.title = resumable ? 'Click to resume this conversation' : 'Click to relaunch';
-      const launch = async (resume) => {
-        item.style.opacity = '.4';
-        const err = await GWT.app.launchHistory(h, { resume });
-        if (err) {
-          item.style.opacity = '';
-          item.querySelector('.cwd').textContent = err;
-        }
-      };
-      item.addEventListener('click', () => launch(true));
-      item.querySelector('.b-hrename').addEventListener('click', (e) => {
-        e.stopPropagation();
-        GWT.app.renameHistory(h.hid, h.name);
-      });
-      item.querySelector('.b-fresh')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        launch(false);
-      });
-      item.querySelector('.b-del').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        GWT.app.removeHistory(h.hid);
-      });
-      list.appendChild(item);
+      const g = String(h.group || '').trim();
+      if (!buckets.has(g)) buckets.set(g, []);
+      buckets.get(g).push(h);
     }
+    const named = [...buckets.keys()].filter(Boolean);
+    const loose = buckets.get('') || [];
+
+    for (const g of named) {
+      const gh = groupHeader(g, buckets.get(g).length);
+      list.appendChild(gh);
+      makeGroupDropTarget(gh, g);
+      if (GWT.state.prevCollapsed.has(g)) continue;
+      for (const h of buckets.get(g)) list.appendChild(buildPrevItem(h, g));
+    }
+    // Only label the loose entries when there is something to contrast against.
+    if (named.length && loose.length) {
+      const gh = groupHeader('', loose.length);
+      list.appendChild(gh);
+      makeGroupDropTarget(gh, '');
+    }
+    if (!(named.length && GWT.state.prevCollapsed.has(''))) {
+      for (const h of loose) list.appendChild(buildPrevItem(h, ''));
+    }
+  }
+
+  // '' renders as the "Ungrouped" bucket and has no rename action.
+  function groupHeader(name, count) {
+    const collapsed = GWT.state.prevCollapsed.has(name);
+    const gh = el('div', 'sb-group' + (collapsed ? ' collapsed' : ''));
+    gh.innerHTML = `
+      <span class="caret">${collapsed ? '▸' : '▾'}</span>
+      <span class="gname"></span>
+      <span class="gcount">${count}</span>
+      <div class="btns">${name ? '<button class="b-grename" title="Rename group" data-icon="edit"></button>' : ''}</div>`;
+    gh.querySelector('.gname').textContent = name || 'Ungrouped';
+    gh.title = name ? `${name} — click to collapse, drop a session here to add it` : 'Sessions with no group';
+    GWT.icons.apply(gh);
+    gh.addEventListener('click', () => GWT.app.togglePrevGroup(name));
+    gh.querySelector('.b-grename')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      GWT.app.renameHistoryGroup(name);
+    });
+    return gh;
+  }
+
+  function buildPrevItem(h, group) {
+    const item = el('div', 'sess prev');
+    const resumable = h.kind === 'claude' && h.claudeSessionId;
+    item.innerHTML = `
+      <div class="row1">
+        <span class="dot exited"></span>
+        <span class="name">${esc(h.name)}</span>
+        <span class="idx">${GWT.util.fmtAgo(h.lastUsed)}</span>
+      </div>
+      <div class="statusline">
+        <span>${h.kind}${h.distro ? ':' + esc(h.distro) : ''}</span>
+        <span>${resumable ? '· resumable' : ''}</span>
+      </div>
+      <div class="cwd" title="${esc(h.cwd)}">${esc(h.cwd)}</div>
+      <div class="btns">
+        <button class="b-group" title="Set group" data-icon="folder"></button>
+        <button class="b-hrename" title="Rename" data-icon="edit"></button>
+        ${resumable ? '<button class="b-fresh" title="Launch fresh (same directory, new conversation)" data-icon="refresh"></button>' : ''}
+        <button class="b-del" title="Remove from history" data-icon="close"></button>
+      </div>`;
+    GWT.icons.apply(item);
+    item.title =
+      (resumable ? 'Click to resume this conversation' : 'Click to relaunch') +
+      ' · drag to reorder or to move between groups';
+    if (group) item.classList.add('grouped');
+    makeReorderable(item, h.hid, group);
+    const launch = async (resume) => {
+      item.style.opacity = '.4';
+      const err = await GWT.app.launchHistory(h, { resume });
+      if (err) {
+        item.style.opacity = '';
+        item.querySelector('.cwd').textContent = err;
+      }
+    };
+    item.addEventListener('click', () => {
+      if (Date.now() - prevDragEndedAt < 250) return; // click trailing a drag
+      launch(true);
+    });
+    item.querySelector('.b-group').addEventListener('click', (e) => {
+      e.stopPropagation();
+      GWT.app.setHistoryGroup(h.hid, group);
+    });
+    item.querySelector('.b-hrename').addEventListener('click', (e) => {
+      e.stopPropagation();
+      GWT.app.renameHistory(h.hid, h.name);
+    });
+    item.querySelector('.b-fresh')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      launch(false);
+    });
+    item.querySelector('.b-del').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      GWT.app.removeHistory(h.hid);
+    });
+    return item;
   }
 
   function tickDurations() {
