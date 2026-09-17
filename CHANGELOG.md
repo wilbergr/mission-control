@@ -7,6 +7,33 @@ elevation prompt when you run the installer, and again if you use **Restart as
 administrator**. Confirm the file came from the expected internal location before
 accepting.
 
+## 1.4.0 — 2026-09-17
+
+### Added
+
+- **Reorder the Previous list.** Drag any previous session where you want it. The
+  order is yours and is remembered across restarts — the list is no longer sorted
+  by how recently you used something. Newly used sessions appear at the top so
+  they stay easy to find, without disturbing anything you have placed.
+
+  When the 50-entry limit is reached, the *least recently used* entry is dropped
+  wherever it sits in your ordering, so parking a favourite at the bottom won't
+  make it the first thing to go.
+
+- **Group previous sessions.** The folder icon on a Previous entry sets its group —
+  type a new name to create one, or leave it blank to ungroup. Groups appear as
+  collapsible headers with a count; click a header to collapse it (remembered
+  across restarts), and the rename button on a header renames the group for every
+  session in it.
+
+  Dragging is the quicker route: an entry joins the group of whatever you drop it
+  next to, and dropping onto a group header puts it at the top of that group. Drop
+  it beside an ungrouped session, or onto the *Ungrouped* header, to take it out
+  again.
+
+  Groups exist only while something is in them, so emptying one makes it
+  disappear, and group order follows your ordering of the sessions inside.
+
 ## 1.3.2 — 2026-09-17
 
 ### Fixed

@@ -1,7 +1,7 @@
 {
   "name": "mission-control",
   "productName": "Mission Control",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "description": "Mission Control — multi-session Claude Code IDE for Windows: tiled terminals, session status, broadcast input, workspace visibility",
   "main": "main/main.js",
   "scripts": {
