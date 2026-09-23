@@ -31,6 +31,22 @@ const STARTUP_ERROR_ANCHORS = [
   'session not found',
 ];
 
+// Notification types (the hook payload's `notification_type`, sent by Claude
+// Code 2.1.x) that mean a choice is on screen right now. Everything else is an
+// FYI — most importantly `idle_prompt` ("Claude is waiting for your input"),
+// which fires after a *finished* turn has sat for a minute and must not grow
+// answer buttons. `agent_needs_input` is left out on purpose: when unsure, show
+// nothing, since a wrong button sends keystrokes to Claude.
+const PROMPT_NOTIFICATIONS = new Set(['permission_prompt', 'elicitation_dialog', 'worker_permission_prompt']);
+
+function notificationAwaitsInput(payload) {
+  const type = payload && payload.notification_type;
+  if (type) return PROMPT_NOTIFICATIONS.has(type);
+  // CLIs from before notification_type existed: only a permission message
+  // reliably means a menu is up.
+  return /permission/i.test(String((payload && payload.message) || ''));
+}
+
 const HOOK_EVENTS = [
   'SessionStart',
   'UserPromptSubmit',
@@ -218,6 +234,10 @@ class SessionManager extends EventEmitter {
       hooksSeen: false,
       claudeSessionId: null, // Claude's own session UUID (from hook payloads)
       pendingQuestion: null, // AskUserQuestion payload while Claude waits on a choice
+      // True only while a choice is actually on screen. 'attention' alone is not
+      // enough — it also covers the idle nudge, the startup watchdog and a failed
+      // resume — and the renderer shows answer buttons only when this is set.
+      awaitingInput: false,
       usage: null, // {out, ctx, model} parsed from the transcript after each turn
       notice, // launch caveat worth showing the user (e.g. resume fell back to fresh)
       startedAt: Date.now(), // bounds how long startup output is scanned
@@ -235,6 +255,7 @@ class SessionManager extends EventEmitter {
         s.startTimer = null;
         if (s.hooksSeen || s.status !== 'starting') return;
         s.notice = s.notice || 'No signal from Claude yet — check this session\'s terminal for a prompt or error.';
+        s.awaitingInput = false; // an explanation, not a question
         this._setStatus(s, 'attention', 'No signal from Claude yet — check the terminal');
         this._pushActivity(s, 'attention', 'No hook signal after 45s — session may be waiting in the terminal');
       }, START_GRACE_MS);
@@ -248,7 +269,12 @@ class SessionManager extends EventEmitter {
       if (s.kind === 'claude' && !s.hooksSeen && s.status !== 'exited') {
         // Bell heuristic: only trusted when hooks aren't reporting (e.g. hooks
         // misconfigured) — Claude rings BEL when it needs attention.
-        if (data.includes('\x07')) this._setStatus(s, 'attention', 'Terminal bell — may need input');
+        // Before any hook, a bell almost always means an interactive menu —
+        // typically the folder-trust prompt — so offer the navigation keys.
+        if (data.includes('\x07')) {
+          s.awaitingInput = true;
+          this._setStatus(s, 'attention', 'Terminal bell — may need input');
+        }
         this._checkStartupTrouble(s);
       }
       this.emit('data', { id, data });
@@ -372,6 +398,7 @@ class SessionManager extends EventEmitter {
       hooksSeen: s.hooksSeen,
       claudeSessionId: s.claudeSessionId,
       pendingQuestion: s.pendingQuestion,
+      awaitingInput: s.awaitingInput,
       usage: s.usage,
       notice: s.notice,
       distro: s.distro,
@@ -433,6 +460,7 @@ class SessionManager extends EventEmitter {
     s.startupReported = true;
     this._clearStartTimer(s);
     s.notice = 'Claude could not open that conversation. Launch a fresh session in this directory, or answer the prompt in the terminal.';
+    s.awaitingInput = false;
     this._setStatus(s, 'attention', 'Could not open the saved conversation');
     this._pushActivity(s, 'attention', 'Resume failed — Claude could not open the saved conversation');
   }
@@ -464,6 +492,7 @@ class SessionManager extends EventEmitter {
           // Claude is about to show an interactive choice menu — surface the
           // structured question so the UI can render clickable options.
           s.pendingQuestion = normalizeQuestions(payload.tool_input);
+          s.awaitingInput = true;
           const q = s.pendingQuestion ? trunc(s.pendingQuestion[0].question, 110) : 'Question';
           this._setStatus(s, 'attention', `Question: ${q}`);
           this._pushActivity(s, 'attention', `Question: ${q}`);
@@ -482,6 +511,10 @@ class SessionManager extends EventEmitter {
         break;
       case 'Notification': {
         const msg = trunc(payload.message, 140) || 'Claude needs your attention';
+        // OR, not assign: an FYI (e.g. the idle nudge) arriving while a question
+        // is still on screen must not hide that question's buttons. Leaving
+        // 'attention' clears the flag in _setStatus, so it can't go stale.
+        s.awaitingInput = s.awaitingInput || notificationAwaitsInput(payload);
         this._setStatus(s, 'attention', msg);
         this._pushActivity(s, 'attention', msg);
         break;
@@ -537,6 +570,8 @@ class SessionManager extends EventEmitter {
   _setStatus(s, status, activity) {
     const changed = s.status !== status;
     s.status = status;
+    // Any move out of 'attention' means the prompt, if there was one, is gone.
+    if (status !== 'attention') s.awaitingInput = false;
     if (activity) s.activity = activity;
     if (changed) s.statusSince = Date.now();
     // A removed session must never surface again: the renderer's upsert would
@@ -575,4 +610,4 @@ class SessionManager extends EventEmitter {
   }
 }
 
-module.exports = { SessionManager, splitArgs };
+module.exports = { SessionManager, splitArgs, notificationAwaitsInput };

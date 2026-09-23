@@ -46,6 +46,7 @@ window.GWT = window.GWT || {};
     globalTheme: 'GitHub Dark',
     fontSize: 13,
     notifications: true,
+    responseStrip: true, // clickable answer buttons under a pane when Claude asks
     uiMode: 'system', // 'system' | 'dark' | 'light'
     layout: 'tiles', // 'tiles' | 'tabs'
     elevated: false, // app-wide: every session inherits it (see main.js)
@@ -171,6 +172,7 @@ window.GWT = window.GWT || {};
       termTheme: GWT.state.globalTheme,
       fontSize: GWT.state.fontSize,
       notifications: GWT.state.notifications,
+      responseStrip: GWT.state.responseStrip,
       uiMode: GWT.state.uiMode,
       layout: GWT.state.layout,
       prevCollapsed: [...GWT.state.prevCollapsed],
@@ -567,6 +569,7 @@ window.GWT = window.GWT || {};
     if (prefs.termTheme && GWT.themes.valid(prefs.termTheme)) GWT.state.globalTheme = prefs.termTheme;
     if (prefs.fontSize >= 9 && prefs.fontSize <= 22) GWT.state.fontSize = prefs.fontSize;
     GWT.state.notifications = prefs.notifications !== false;
+    GWT.state.responseStrip = prefs.responseStrip !== false; // default on
     if (['system', 'dark', 'light'].includes(prefs.uiMode)) GWT.state.uiMode = prefs.uiMode;
     applyUiMode();
     if (Array.isArray(prefs.prevCollapsed)) GWT.state.prevCollapsed = new Set(prefs.prevCollapsed);
@@ -582,6 +585,7 @@ window.GWT = window.GWT || {};
       themeSel.value = GWT.state.globalTheme;
       $('#set-font').value = GWT.state.fontSize;
       $('#set-notif').checked = GWT.state.notifications;
+      $('#set-strip').checked = GWT.state.responseStrip;
       $('#set-uimode').value = GWT.state.uiMode;
       $('#set-elev-state').textContent = GWT.state.elevated
         ? 'Running as administrator'
@@ -628,6 +632,12 @@ window.GWT = window.GWT || {};
     $('#set-notif').addEventListener('change', () => {
       GWT.state.notifications = $('#set-notif').checked;
       saveUiPrefs();
+    });
+    $('#set-strip').addEventListener('change', () => {
+      GWT.state.responseStrip = $('#set-strip').checked;
+      saveUiPrefs();
+      // apply to panes already showing (or hiding) a strip, not just future ones
+      for (const s of GWT.state.sessions.values()) GWT.panes.updatePane(s);
     });
 
     // Re-attach to sessions that already exist (e.g. renderer reload).

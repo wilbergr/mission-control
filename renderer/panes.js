@@ -243,7 +243,7 @@ window.GWT = window.GWT || {};
     p.term.write(data);
     // menus can finish painting after the attention status arrives — re-parse
     const info = GWT.state && GWT.state.sessions.get(id);
-    if (info && info.status === 'attention') {
+    if (stripWanted(info)) {
       clearTimeout(p.menuTimer);
       p.menuTimer = setTimeout(() => renderResponseStrip(id), 300);
     }
@@ -362,11 +362,24 @@ window.GWT = window.GWT || {};
     };
   }
 
+  // 'attention' alone is not enough: it also covers the idle nudge, the startup
+  // watchdog and a failed resume, none of which put a choice on screen. Main
+  // sets awaitingInput only when one is really there (see session-manager.js),
+  // and a wrong button here would send keystrokes to Claude.
+  function stripWanted(info) {
+    return (
+      !!info &&
+      info.status === 'attention' &&
+      info.awaitingInput === true &&
+      GWT.state.responseStrip !== false
+    );
+  }
+
   function updateResponseStrip(info) {
     const p = panes.get(info.id);
     if (!p) return;
     const foot = p.el.querySelector('.pane-foot');
-    if (info.status !== 'attention') {
+    if (!stripWanted(info)) {
       foot.style.display = 'none';
       p.els.question.style.display = 'none';
       p.els.options.style.display = 'none';
@@ -378,14 +391,14 @@ window.GWT = window.GWT || {};
     clearTimeout(p.menuTimer);
     p.menuTimer = setTimeout(() => renderResponseStrip(info.id), 250);
     setTimeout(() => {
-      if (GWT.state.sessions.get(info.id)?.status === 'attention') renderResponseStrip(info.id);
+      if (stripWanted(GWT.state.sessions.get(info.id))) renderResponseStrip(info.id);
     }, 1200);
   }
 
   function renderResponseStrip(id) {
     const p = panes.get(id);
     const info = GWT.state.sessions.get(id);
-    if (!p || !info || info.status !== 'attention') return;
+    if (!p || !stripWanted(info)) return;
 
     let menu = parseMenuFromScreen(p.term);
     if (!menu && info.pendingQuestion && info.pendingQuestion.length) {

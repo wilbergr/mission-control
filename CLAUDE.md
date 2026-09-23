@@ -91,7 +91,18 @@ Because a hidden tile keeps receiving output sized for the pop-out window, re-do
 
 ### Response strip (clickable answers)
 
-`panes.js` renders answer buttons only while status is `attention`, preferring a menu scraped from the *visible xterm screen* (`parseMenuFromScreen` strips box-drawing chars and finds the last cluster of `1.`/`2.`… lines) and falling back to `info.pendingQuestion`. Menus often finish painting after the status event arrives, so parsing is retried on a timer (250 ms / 1200 ms) and again from `writeData`. Clicking a button just writes the digit to the PTY.
+**`attention` is not the same as "a choice is on screen".** It also covers Claude's idle nudge, the startup watchdog and a failed resume. So main keeps a separate `s.awaitingInput`, and `panes.js` (`stripWanted`) shows the strip — option buttons *and* the arrow/enter/esc key row — only when `status === 'attention' && awaitingInput`, and the `ui.responseStrip` pref isn't off. Getting this wrong is not cosmetic: a button writes keystrokes to the PTY.
+
+`awaitingInput` is set from the hook data, not guessed from the screen:
+
+- `PreToolUse` for `AskUserQuestion` → true.
+- `Notification` → decided by the payload's **`notification_type`** (Claude Code 2.1.x). Only `permission_prompt`, `elicitation_dialog` and `worker_permission_prompt` count (`PROMPT_NOTIFICATIONS`). `idle_prompt` — "Claude is waiting for your input", sent after a *finished* turn sits for a minute — does not, and was the main source of phantom buttons. When unsure, leave it out: `agent_needs_input` is excluded on purpose. Payloads with no type (older CLIs) fall back to matching `permission` in the message.
+- A notification is **OR**ed in, never assigned: an idle nudge arriving while a real menu is still up must not hide it.
+- The pre-hook bell → true (in practice the folder-trust menu, which draws before any hook fires).
+- Watchdog and failed-resume → false; they're explanations, not questions.
+- `_setStatus` clears it on any move out of `attention`, so it can't go stale.
+
+Given a prompt is up, `parseMenuFromScreen` extracts options from the *visible xterm screen* (strips box-drawing chars, finds the last cluster of `1.`/`2.`… lines), falling back to `info.pendingQuestion`. Don't use the parser as the evidence that a prompt exists — it matches any numbered list, including one in Claude's own reply, and not every Claude menu is numbered (the trust menu is a bare `> No, exit` list with an ASCII cursor under ConPTY). Menus often finish painting after the status event, so parsing is retried (250 ms / 1200 ms) and again from `writeData`. Clicking a button writes the digit to the PTY.
 
 ### Renderer conventions
 

@@ -7,6 +7,24 @@ elevation prompt when you run the installer, and again if you use **Restart as
 administrator**. Confirm the file came from the expected internal location before
 accepting.
 
+## 1.4.1 — 2026-09-23
+
+### Fixed
+
+- **Answer buttons appeared when Claude wasn't asking anything.** The strip of
+  clickable answers and navigation keys under a session showed whenever the
+  session said *Needs you* — including Claude's "waiting for your input" reminder
+  after a finished turn, when nothing was being asked. A numbered list in Claude's
+  own reply could even turn into buttons that would send a number to Claude. The
+  strip now appears only when Claude has actually put a choice in front of you,
+  such as a permission prompt or a multiple-choice question.
+
+### Added
+
+- **Turn the answer buttons off.** Untick **Settings → Clickable answer buttons
+  when Claude asks a question** to hide them entirely. Sessions still show *Needs
+  you*, and you answer in the terminal as usual.
+
 ## 1.4.0 — 2026-09-17
 
 ### Added

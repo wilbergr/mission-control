@@ -58,6 +58,10 @@ The window title summarizes it (`(2 ready) Mission Control`, `(1 needs you) Miss
 
 When a session needs a choice (permission prompt, multiple-choice question, plan approval), a strip appears at the bottom of that pane with **clickable answer buttons** — parsed from the structured question data when available, or from the terminal screen for permission menus — plus arrow/space/enter/escape keys for anything else. No need to click into the terminal.
 
+The strip only appears when Claude has actually put a choice in front of you. A session can show **Needs you** without one — Claude's "waiting for your input" nudge after a finished turn, or a session that hasn't reported in yet — and those get no buttons, since a button there would just send keystrokes to Claude.
+
+To turn the strip off entirely, untick **Settings → Clickable answer buttons when Claude asks a question**. The session still shows *Needs you*; you answer in the terminal as usual.
+
 ### Layout
 
 - Sessions auto-tile into a grid; drag a pane header to reorder
