@@ -7,6 +7,17 @@ elevation prompt when you run the installer, and again if you use **Restart as
 administrator**. Confirm the file came from the expected internal location before
 accepting.
 
+## 1.5.0 — 2026-09-24
+
+### Added
+
+- **Drag whole groups in the Previous list.** Grab a group's header to move the
+  group and every session in it at once — collapsed groups included. Drop it on
+  another group's header, or on one of that group's sessions, to place it above or
+  below that group; drop it on *Ungrouped* to send it to the bottom of the named
+  groups. Moving a group never changes which group any session belongs to, and the
+  new order is remembered across restarts.
+
 ## 1.4.1 — 2026-09-23
 
 ### Fixed

@@ -623,6 +623,8 @@ dialog label.check input[type="text"] { width: 180px; margin: 0 0 0 6px; }
 .sb-group:hover .btns { display: flex; }
 .sb-group .btns button { padding: 0 5px; font-size: 11px; line-height: 16px; }
 .sb-group.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.sb-group[draggable="true"] { cursor: grab; }
+.sb-group.dragging { opacity: .4; cursor: grabbing; }
 /* members sit indented under their header */
 .sess.prev.grouped { margin-left: 10px; }
 .sb-more {

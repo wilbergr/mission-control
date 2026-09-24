@@ -109,9 +109,13 @@ whatever you drop it next to**, and dropping onto a group header puts it at the 
 that group. Drop it next to an ungrouped session, or onto the *Ungrouped* header, to
 take it out of its group again.
 
+**Drag a group header to move the whole group**, sessions and all — collapsed groups
+included. Drop it on another group's header, or on one of that group's sessions, to
+place it above or below that group; drop it on *Ungrouped* to send it to the bottom
+of the named groups. Ungrouped itself always stays last.
+
 A group exists only as long as something is in it — there are no empty groups, so
-emptying one makes it disappear. Group order follows your ordering of the sessions
-inside them.
+emptying one makes it disappear.
 
 ### Appearance
 

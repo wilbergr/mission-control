@@ -80,13 +80,49 @@ window.GWT = window.GWT || {};
   // Drag state for reordering Previous. `prevDragEndedAt` guards the item's
   // click handler: a stray click after a drag would relaunch a session, which
   // spawns a process, so it is worth being defensive about.
-  let prevDragHid = null;
+  let prevDragHid = null; // a session row is being dragged
+  let prevDragGroup = null; // a whole group (by name) is being dragged
   let prevDragEndedAt = 0;
+  // The Previous entries as last rendered, in array order. Group moves are
+  // computed from this rather than from the DOM: a collapsed group has no rows
+  // in the DOM, but its members still have to move with it.
+  let lastPrev = [];
 
   const prevItems = () => [...document.querySelectorAll('#session-list .sess.prev')];
 
   function clearDropTargets() {
-    for (const n of prevItems()) n.classList.remove('drop-target');
+    for (const n of document.querySelectorAll('#session-list .drop-target')) n.classList.remove('drop-target');
+  }
+
+  // group name ('' = ungrouped) -> entries, in first-appearance order
+  function bucketize(entries) {
+    const buckets = new Map();
+    for (const h of entries) {
+      const g = String(h.group || '').trim();
+      if (!buckets.has(g)) buckets.set(g, []);
+      buckets.get(g).push(h);
+    }
+    return buckets;
+  }
+
+  // Move a whole group next to another. A group's position is where its first
+  // member sits, so this is just a reorder that keeps each group's members
+  // together. `target === ''` (the Ungrouped header, or an ungrouped row) moves
+  // it to the end, since Ungrouped always renders last.
+  function moveGroup(from, target) {
+    const buckets = bucketize(lastPrev);
+    const before = [...buckets.keys()].filter(Boolean);
+    if (!before.includes(from) || from === target) return;
+    const after = before.filter((g) => g !== from);
+    if (!target) after.push(from);
+    else {
+      const ti = after.indexOf(target);
+      if (ti < 0) return;
+      // same convention as rows: below it when dragging down, above when up
+      after.splice(before.indexOf(from) < before.indexOf(target) ? ti + 1 : ti, 0, from);
+    }
+    const order = [...after.flatMap((g) => buckets.get(g)), ...(buckets.get('') || [])].map((h) => h.hid);
+    GWT.app.moveHistory(null, null, order);
   }
 
   // Whole-item drag rather than a small grip: the row is the target users will
@@ -113,6 +149,12 @@ window.GWT = window.GWT || {};
       clearDropTargets();
     });
     item.addEventListener('dragover', (e) => {
+      // a group dropped on one of another group's rows means "next to that group"
+      if (prevDragGroup && prevDragGroup !== item.dataset.group) {
+        e.preventDefault();
+        item.classList.add('drop-target');
+        return;
+      }
       if (!prevDragHid || prevDragHid === hid) return;
       e.preventDefault();
       item.classList.add('drop-target');
@@ -120,6 +162,11 @@ window.GWT = window.GWT || {};
     item.addEventListener('dragleave', () => item.classList.remove('drop-target'));
     item.addEventListener('drop', (e) => {
       item.classList.remove('drop-target');
+      if (prevDragGroup) {
+        e.preventDefault();
+        moveGroup(prevDragGroup, item.dataset.group || '');
+        return;
+      }
       if (!prevDragHid || prevDragHid === hid) return;
       e.preventDefault();
       const from = prevItems().find((n) => n.dataset.hid === prevDragHid);
@@ -132,9 +179,16 @@ window.GWT = window.GWT || {};
     });
   }
 
-  // Dropping on a header puts the entry at the top of that group.
+  // Dropping a session on a header puts it at the top of that group; dropping
+  // a group on a header moves the whole group next to that one.
   function makeGroupDropTarget(head, group) {
     head.addEventListener('dragover', (e) => {
+      if (prevDragGroup) {
+        if (prevDragGroup === group) return;
+        e.preventDefault();
+        head.classList.add('drop-target');
+        return;
+      }
       if (!prevDragHid) return;
       e.preventDefault();
       head.classList.add('drop-target');
@@ -142,6 +196,11 @@ window.GWT = window.GWT || {};
     head.addEventListener('dragleave', () => head.classList.remove('drop-target'));
     head.addEventListener('drop', (e) => {
       head.classList.remove('drop-target');
+      if (prevDragGroup) {
+        e.preventDefault();
+        moveGroup(prevDragGroup, group);
+        return;
+      }
       if (!prevDragHid) return;
       e.preventDefault();
       const from = prevItems().find((n) => n.dataset.hid === prevDragHid);
@@ -170,6 +229,7 @@ window.GWT = window.GWT || {};
       if (listedNames.has(String(h.name || '').trim().toLowerCase())) return false;
       return true;
     });
+    lastPrev = prev;
     if (!prev.length) return;
 
     const head = el('div', 'sb-section');
@@ -179,12 +239,7 @@ window.GWT = window.GWT || {};
     // Bucket by group, keeping each group in the position of its first member
     // so group order follows the user's manual ordering rather than an
     // independent list. Ungrouped entries render last.
-    const buckets = new Map(); // group name ('' = ungrouped) -> entries
-    for (const h of prev) {
-      const g = String(h.group || '').trim();
-      if (!buckets.has(g)) buckets.set(g, []);
-      buckets.get(g).push(h);
-    }
+    const buckets = bucketize(prev);
     const named = [...buckets.keys()].filter(Boolean);
     const loose = buckets.get('') || [];
 
@@ -216,14 +271,39 @@ window.GWT = window.GWT || {};
       <span class="gcount">${count}</span>
       <div class="btns">${name ? '<button class="b-grename" title="Rename group" data-icon="edit"></button>' : ''}</div>`;
     gh.querySelector('.gname').textContent = name || 'Ungrouped';
-    gh.title = name ? `${name} — click to collapse, drop a session here to add it` : 'Sessions with no group';
+    gh.title = name
+      ? `${name} — click to collapse, drag to move the whole group, drop a session here to add it`
+      : 'Sessions with no group';
     GWT.icons.apply(gh);
-    gh.addEventListener('click', () => GWT.app.togglePrevGroup(name));
+    // Ungrouped always renders last, so only named groups can be picked up.
+    if (name) makeGroupDraggable(gh, name);
+    gh.addEventListener('click', () => {
+      if (Date.now() - prevDragEndedAt < 250) return; // click trailing a drag
+      GWT.app.togglePrevGroup(name);
+    });
     gh.querySelector('.b-grename')?.addEventListener('click', (e) => {
       e.stopPropagation();
       GWT.app.renameHistoryGroup(name);
     });
     return gh;
+  }
+
+  function makeGroupDraggable(gh, name) {
+    gh.draggable = true;
+    gh.addEventListener('dragstart', (e) => {
+      prevDragGroup = name;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/gwt-prevgroup', name);
+      gh.classList.add('dragging');
+      // dim the members too, so it's clear the whole block is moving
+      for (const n of prevItems()) if (n.dataset.group === name) n.classList.add('dragging');
+    });
+    gh.addEventListener('dragend', () => {
+      prevDragGroup = null;
+      prevDragEndedAt = Date.now();
+      for (const n of document.querySelectorAll('#session-list .dragging')) n.classList.remove('dragging');
+      clearDropTargets();
+    });
   }
 
   function buildPrevItem(h, group) {
