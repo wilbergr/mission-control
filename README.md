@@ -14,7 +14,7 @@ Built with Electron + ConPTY (real Windows pseudo-terminals) + xterm.js + Monaco
 
 ## Install
 
-**From the installer:** run `Mission Control Setup <version>.exe` (built into `dist/`). It installs per-user — no admin rights needed — and creates Start-menu and desktop shortcuts.
+**From the installer:** download `Mission-Control-<version>-setup.exe` from the repository's GitHub Releases page (or build it locally, below) and run it. It installs per-user — no admin rights needed — and creates Start-menu and desktop shortcuts. The installer isn't code-signed, so SmartScreen may say it "protected your PC": choose **More info**, then **Run anyway**.
 
 **From source (development):**
 
@@ -28,6 +28,20 @@ npm start
 ```
 npm run dist        # output: dist/Mission Control Setup <version>.exe
 ```
+
+### Releasing
+
+`.github/workflows/release.yml` builds the installer on a GitHub Windows runner and
+publishes it as a release, with a `SHA256SUMS.txt`. To ship a version:
+
+1. Set `"version"` in `package.json`, add a `## <version>` section to `CHANGELOG.md`,
+   and merge to `main`. The changelog section becomes the release notes.
+2. Tag that commit and push the tag: `git tag v1.5.0` then `git push origin v1.5.0`.
+
+The workflow refuses a tag that doesn't match `package.json`, and a tag with no
+matching changelog section. To try a build without publishing, run the workflow by
+hand from the Actions tab; the installer and the generated release notes are
+attached to that run as an artifact.
 
 ## Core concepts
 

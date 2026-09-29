@@ -14,6 +14,8 @@ There is no build step, no bundler, no test suite, and no linter configured. Ver
 
 `node_modules/` and `dist/` are gitignored.
 
+Releases are built by `.github/workflows/release.yml` (same shape as the Stash repo's): pushing a `v<version>` tag builds on `windows-latest` and publishes a GitHub Release; a manual run only uploads an artifact. It fails a tag that doesn't match `package.json`, or that has no `## <version>` section in `CHANGELOG.md` — that section is the release notes. Two things in it are load-bearing: electron-builder is run with **`--publish never`**, because on a CI runner it otherwise enables publishing by itself and tries to create its own release; and after `npm ci` it asserts node-pty's `pty.node`/`conpty.node` exist, because a skipped install script would still build a clean-looking installer whose app fails as soon as a session opens.
+
 ## Big picture
 
 Electron app. **The main process owns all state**; the renderer is a projection of it.

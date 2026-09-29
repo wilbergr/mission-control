@@ -1,0 +1,157 @@
+# Builds the Mission Control installer and publishes it as a GitHub Release.
+#
+#   Push a tag like v1.5.0  -> builds, then creates the v1.5.0 release with the
+#                              installer attached.
+#   Run it by hand          -> builds only; the installer is attached to the
+#                              workflow run as a downloadable artifact. Use this
+#                              to try a build before releasing it.
+#
+# The tag must match "version" in package.json. electron-builder stamps that
+# version into the installer and the app, so publishing two different builds as
+# the same version leaves people unable to tell which one they have.
+#
+# A tagged build also needs a "## <version>" section in CHANGELOG.md: it becomes
+# the release notes.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create the release and upload its assets
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      # All three run on Node 24, same majors as the Stash workflow.
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Read the version
+        id: version
+        shell: powershell
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if (-not $version) { throw "No version in package.json." }
+
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match the package.json version $version. Tag v$version, or update package.json first."
+          }
+
+          "value=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Install dependencies
+        shell: powershell
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw "npm ci failed." }
+
+          # node-pty's native binaries come from its install script. If a
+          # future npm skipped that script, electron-builder would still build
+          # happily and ship an app that fails the moment a session is opened.
+          $pty = 'node_modules\@homebridge\node-pty-prebuilt-multiarch\build\Release'
+          foreach ($f in 'pty.node', 'conpty.node') {
+            if (-not (Test-Path "$pty\$f")) { throw "node-pty native binary missing: $pty\$f" }
+          }
+
+      - name: Build installer
+        shell: powershell
+        run: |
+          $v = '${{ steps.version.outputs.value }}'
+
+          # --publish never: on a CI runner electron-builder otherwise turns on
+          # publishing by itself ("Implicit publishing triggered by CI
+          # detection") and tries to create a GitHub release of its own. The
+          # release is created by the last step instead, and only for tags.
+          npx electron-builder --win nsis --publish never
+          if ($LASTEXITCODE -ne 0) { throw "electron-builder failed." }
+
+          # Check what was actually built rather than trusting the log.
+          $exeVersion = (Get-Item 'dist\win-unpacked\Mission Control.exe').VersionInfo.FileVersion
+          if ($exeVersion -ne $v) { throw "Built app reports version $exeVersion, expected $v." }
+          $unpacked = 'dist\win-unpacked\resources\app.asar.unpacked\node_modules\@homebridge\node-pty-prebuilt-multiarch\build\Release'
+          if (-not (Test-Path "$unpacked\pty.node")) { throw "node-pty was not unpacked into the app." }
+
+          # electron-builder names it "Mission Control Setup <v>.exe"; GitHub
+          # turns spaces in asset names into dots, so give it a clean name.
+          New-Item -ItemType Directory release | Out-Null
+          Move-Item "dist\Mission Control Setup $v.exe" "release\Mission-Control-$v-setup.exe"
+
+          # Text files are written through .NET with LF endings and no BOM.
+          # Set-Content in Windows PowerShell writes CRLF, which makes
+          # `sha256sum -c` on Linux and macOS reject every line, and its utf8
+          # encoding prepends a BOM that ends up at the start of the release notes.
+          $utf8 = New-Object System.Text.UTF8Encoding $false
+
+          $sums = Get-FileHash release\*.exe -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" }
+          [IO.File]::WriteAllText("$PWD\release\SHA256SUMS.txt", (($sums -join "`n") + "`n"), $utf8)
+
+          # The release notes are this version's CHANGELOG section plus install
+          # instructions. Written here rather than in the publish step, so a
+          # manual run produces them too and they can be checked first.
+          # -Encoding UTF8 matters: Windows PowerShell reads as ANSI otherwise
+          # and mangles the em dashes in the headings.
+          $changelog = (Get-Content CHANGELOG.md -Raw -Encoding UTF8) -replace "`r`n", "`n"
+          # (?=\s) not \b: \b sits between "1.5" and ".0", so 1.5 would otherwise
+          # pick up the 1.5.0 section. \s also covers a heading with no date.
+          $section = [regex]::Match($changelog, "(?ms)^## $([regex]::Escape($v))(?=\s).*?\n(.*?)(?=^## |\z)")
+          if ($section.Success) {
+            $whatsNew = $section.Groups[1].Value.Trim()
+          } elseif ($env:GITHUB_REF_TYPE -eq 'tag') {
+            throw "CHANGELOG.md has no '## $v' section. Add one before tagging v$v."
+          } else {
+            $whatsNew = "_No CHANGELOG.md entry for $v yet._"
+          }
+
+          New-Item -ItemType Directory notes | Out-Null
+          $notes = @(
+            $whatsNew
+            ''
+            '## Install'
+            ''
+            "Download **Mission-Control-$v-setup.exe** and run it. It installs for your"
+            'Windows account only and does not need administrator rights. Installing a'
+            'newer version upgrades the old one in place and keeps your sessions,'
+            'history and settings.'
+            ''
+            'Mission Control needs the Claude Code CLI (`claude`) and `git` on your PATH.'
+            ''
+            'The installer is not code-signed, so Windows SmartScreen may say it'
+            '"protected your PC". Choose **More info**, then **Run anyway**.'
+            'SHA256SUMS.txt lists the checksum of the installer.'
+          ) -join "`n"
+          [IO.File]::WriteAllText("$PWD\notes\release-notes.md", ($notes + "`n"), $utf8)
+
+          Get-ChildItem release, notes | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Mission-Control-${{ steps.version.outputs.value }}
+          path: |
+            release/*
+            notes/*
+          if-no-files-found: error
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = '${{ steps.version.outputs.value }}'
+
+          # A file, not --notes: Windows PowerShell does not escape the embedded
+          # quotes when passing an argument to a native program.
+          $assets = Get-ChildItem release | ForEach-Object { $_.FullName }
+          gh release create $env:GITHUB_REF_NAME @assets --title "Mission Control $v" --notes-file notes\release-notes.md --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed." }
