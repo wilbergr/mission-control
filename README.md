@@ -31,17 +31,45 @@ npm run dist        # output: dist/Mission Control Setup <version>.exe
 
 ### Releasing
 
-`.github/workflows/release.yml` builds the installer on a GitHub Windows runner and
-publishes it as a release, with a `SHA256SUMS.txt`. To ship a version:
+Releases are published from GitHub, not built by hand.
+`.github/workflows/release.yml` builds the installer on a GitHub Windows runner
+whenever a version tag is pushed, and publishes it at
+https://github.com/wilbergr/mission-control/releases/latest with a
+`SHA256SUMS.txt`. Anyone can download from there; the repository is public.
 
-1. Set `"version"` in `package.json`, add a `## <version>` section to `CHANGELOG.md`,
-   and merge to `main`. The changelog section becomes the release notes.
-2. Tag that commit and push the tag: `git tag v1.5.0` then `git push origin v1.5.0`.
+**To ship a version:**
 
-The workflow refuses a tag that doesn't match `package.json`, and a tag with no
-matching changelog section. To try a build without publishing, run the workflow by
-hand from the Actions tab; the installer and the generated release notes are
-attached to that run as an artifact.
+1. **Pick a new version number** in `package.json` — every published build gets its
+   own. Bump the patch (`1.5.0` → `1.5.1`) for fixes, the minor (`1.5.0` → `1.6.0`)
+   for new features. Never re-release under a version that already exists: the
+   version is stamped into the installer and the app, so two different builds with
+   one number can't be told apart. Then run `npm install --package-lock-only` so
+   `package-lock.json` carries the same version.
+2. **Add a `## <version> — <date>` section to the top of `CHANGELOG.md`**, written for
+   the people installing it: what they'll notice, not what changed in the code. That
+   section becomes the release notes, so it has to exist or the release won't publish.
+3. **Commit to `main` and push.** Pushing a commit never publishes anything.
+4. **Tag that commit and push the tag** — this is what publishes:
+   ```
+   git tag v1.5.1
+   git push origin v1.5.1
+   ```
+5. **Watch it** under the repository's **Actions** tab (about five minutes), then
+   check the release page: the title is "Mission Control <version>", and both the
+   installer and `SHA256SUMS.txt` are attached.
+
+The workflow refuses to publish a tag that doesn't match `package.json`, or one
+with no matching changelog section — nothing is released, fix it and push the
+tag again (delete the failed tag first with `git tag -d v1.5.1` and
+`git push origin :refs/tags/v1.5.1`).
+
+**To try a build without publishing,** run the workflow by hand: **Actions →
+Release → Run workflow**. It builds the installer and the release notes and
+attaches them to that run as an artifact (a zip at the bottom of the run page,
+kept for 90 days) — no release is created.
+
+**Building locally** with `npm run dist` is still fine for trying something out,
+but those installers stay on your machine; publish through a tag.
 
 ## Core concepts
 
