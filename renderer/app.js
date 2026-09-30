@@ -7,6 +7,16 @@ window.GWT = window.GWT || {};
   const $ = (sel) => document.querySelector(sel);
 
   GWT.util = {
+    // Windows Claude and Claude-in-WSL behave the same everywhere in the UI
+    // (status, answer strip, auto-approve, broadcast); only the launch differs.
+    isClaudeKind(kind) {
+      return kind === 'claude' || kind === 'wslclaude';
+    },
+    kindLabel(kind, distro) {
+      if (kind === 'wslclaude') return `claude · wsl ${distro || ''}`.trim();
+      if (kind === 'wsl') return `wsl ${distro || ''}`.trim();
+      return kind === 'shell' ? 'shell' : 'claude';
+    },
     fmtDuration(ms) {
       const s = Math.max(0, Math.floor(ms / 1000));
       if (s < 60) return s + 's';
@@ -85,8 +95,8 @@ window.GWT = window.GWT || {};
     if (s.status !== 'exited') {
       const choice = await GWT.ui.confirmDialog({
         title: `Close "${s.name}"?`,
-        message: `The ${s.kind === 'claude' ? 'Claude session' : 'shell'} will be terminated.${
-          s.kind === 'claude' ? ' You can resume the conversation later from Previous.' : ''
+        message: `The ${GWT.util.isClaudeKind(s.kind) ? 'Claude session' : 'shell'} will be terminated.${
+          GWT.util.isClaudeKind(s.kind) ? ' You can resume the conversation later from Previous.' : ''
         }`,
         buttons: [
           { label: 'Close session', value: 'yes', danger: true },
@@ -372,9 +382,12 @@ window.GWT = window.GWT || {};
   document.querySelectorAll('#new-form input[name="kind"]').forEach((r) =>
     r.addEventListener('change', () => {
       if (!r.checked) return;
-      $('#nf-claude-opts').style.display = r.value === 'claude' ? '' : 'none';
+      const claude = GWT.util.isClaudeKind(r.value);
+      $('#nf-claude-opts').style.display = claude ? '' : 'none';
+      $('#nf-distro-row').style.display = r.value === 'wsl' || r.value === 'wslclaude' ? '' : 'none';
       $('#nf-dir').placeholder =
-        r.value === 'claude' ? 'C:\\src\\myproject' : '(leave blank to open in your home directory)';
+        r.value === 'wslclaude' ? 'C:\\src\\myproject  or  \\\\wsl.localhost\\Ubuntu\\home\\you\\project'
+          : claude ? 'C:\\src\\myproject' : '(leave blank to open in your home directory)';
     })
   );
 
@@ -389,7 +402,7 @@ window.GWT = window.GWT || {};
     try {
       const distros = await window.gwt.app.wslDistros();
       if (distros.length) {
-        $('#nf-wsl-label').style.display = '';
+        for (const l of document.querySelectorAll('#new-form .nf-wsl-only')) l.style.display = '';
         $('#nf-distro').innerHTML = distros
           .map((d) => `<option value="${d.replace(/"/g, '&quot;')}">${d}</option>`)
           .join('');
@@ -405,12 +418,12 @@ window.GWT = window.GWT || {};
     const kind = document.querySelector('#new-form input[name="kind"]:checked').value;
     let cwd = $('#nf-dir').value.trim();
     let name = $('#nf-name').value.trim();
-    if (!cwd && kind === 'claude') {
+    if (!cwd && GWT.util.isClaudeKind(kind)) {
       errEl.textContent = 'Directory is required for Claude sessions.';
       return;
     }
     try {
-      if (kind === 'claude' && $('#nf-worktree').checked) {
+      if (GWT.util.isClaudeKind(kind) && $('#nf-worktree').checked) {
         const r = await window.gwt.ws.worktreeAdd(cwd, $('#nf-branch').value);
         if (r.error) {
           errEl.textContent = r.error;
@@ -433,12 +446,16 @@ window.GWT = window.GWT || {};
         addDirs,
         extraArgs: flagParts.filter(Boolean).join(' '),
         continue: $('#nf-continue').checked,
-        distro: kind === 'wsl' ? $('#nf-distro').value : undefined,
+        distro: kind === 'wsl' || kind === 'wslclaude' ? $('#nf-distro').value : undefined,
         initialPrompt: $('#nf-prompt').value.trim() || undefined,
+        // a session field, not a CLI flag: it works through the hooks, and it is
+        // deliberately left out of extraArgs so history/restore never replays it
+        autoApprove: GWT.util.isClaudeKind(kind) && $('#nf-autoapprove').checked,
       });
       dlgNew.close();
       $('#nf-name').value = '';
       $('#nf-continue').checked = false;
+      $('#nf-autoapprove').checked = false; // opt in each time, never sticky
       $('#nf-worktree').checked = false;
       $('#nf-branch').value = '';
       $('#nf-prompt').value = '';

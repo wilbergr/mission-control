@@ -7,6 +7,40 @@ elevation prompt when you run the installer, and again if you use **Restart as
 administrator**. Confirm the file came from the expected internal location before
 accepting.
 
+## 1.6.0 — 2026-09-30
+
+### Added
+
+- **Auto-approve Claude's permission prompts.** Tick **Auto-approve Claude's
+  permission prompts** when creating a Claude session, or click the shield button
+  in a running session's header, and Mission Control answers that session's
+  approval prompts with Yes, so Claude runs commands and edits files without
+  waiting for you.
+
+  Questions and plan approvals still come to you, and any permission rules you
+  have set still apply. Every automatic approval is logged in the Activity panel,
+  so there is a record of what ran unreviewed. It is per session and never
+  remembered: a new session, or one resumed from Previous, starts with it off.
+  While it's on, the shield is highlighted, the pane's status line says
+  *AUTO-APPROVE*, and the sidebar row shows an *auto-approve* tag.
+
+  Use it with care: with every prompt answered Yes, nothing stops a command you
+  wouldn't have approved — including one prompted by something Claude read in a
+  file or web page.
+
+  Sessions that are already open when you install this version need to be
+  started again before auto-approve works in them.
+
+- **Claude Code in WSL.** A new session type, **Claude Code (WSL)**, runs Claude
+  inside a WSL distribution with everything a Windows Claude session has: live
+  status, answer buttons, auto-approve and token counts. Choose the distribution,
+  then a folder — a Windows folder, or one of the distribution's own as a
+  `\\wsl.localhost\<distribution>\…` path, which Claude works in much faster.
+
+  Claude Code has to be installed inside the distribution (separately from
+  Windows); if it isn't, the session says so. No changes to WSL's networking are
+  needed. It appears in New Session only when WSL has a distribution installed.
+
 ## 1.5.0 — 2026-09-24
 
 ### Added

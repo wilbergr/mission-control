@@ -40,19 +40,24 @@ class HookServer {
       if (body.length > 2_000_000) req.destroy(); // safety cap
     });
     req.on('end', () => {
-      // Respond immediately so the hook command never delays Claude.
-      res.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
       let payload = {};
       try {
         payload = JSON.parse(body || '{}');
       } catch {
         payload = { hook_event_name: 'Unparseable' };
       }
+      // The response body is what the hook command prints, and Claude reads that
+      // stdout as the hook's JSON output — so onEvent may return a reply (today
+      // only a PermissionRequest decision). onEvent is synchronous and cheap, so
+      // answering after it still never delays Claude. Any failure answers `{}`,
+      // which means "no decision": Claude simply shows its normal prompt.
+      let reply = null;
       try {
-        this.onEvent(sessionId, payload);
+        reply = this.onEvent(sessionId, payload) || null;
       } catch (err) {
         console.error('hook event handler failed:', err);
       }
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(reply || {}));
     });
     req.on('error', () => {});
   }

@@ -75,10 +75,11 @@ but those installers stay on your machine; publish through a tag.
 
 ### Sessions
 
-Create sessions with **+** (or `Ctrl+Shift+N`). Three types:
+Create sessions with **+** (or `Ctrl+Shift+N`). Four types:
 
 - **Claude Code** — launches `claude` in the chosen project directory. Startup options are plain dropdowns: model (Opus/Sonnet/Haiku), permission mode (ask / plan mode / auto-accept edits), an optional starting prompt Claude begins working on immediately, extra `--add-dir` directories, and a free-form CLI args box for anything else.
 - **PowerShell** — a plain terminal. Leave the directory blank to open in your home directory.
+- **Claude Code (WSL)** — Claude running *inside* a WSL distro, with everything a Windows Claude session has: live status, answer buttons, auto-approve, token counts and resume. Pick the distro, then a directory — either a Windows folder (Claude sees it as `/mnt/c/…`) or one of the distro's own, as a `\\wsl.localhost\<distro>\…` path. Linux-side folders are much faster for Claude to work in than `/mnt/c`. Claude Code has to be installed inside the distro; if it isn't, the session says so. Offered only when WSL has a distro installed.
 - **WSL** — a Linux terminal in any installed distro (auto-detected). Blank directory opens in the Linux home (`~`).
 
 For Claude sessions in a git repo, the **worktree option** creates a new git worktree + branch so several sessions can work on the same repo without colliding.
@@ -103,6 +104,29 @@ When a session needs a choice (permission prompt, multiple-choice question, plan
 The strip only appears when Claude has actually put a choice in front of you. A session can show **Needs you** without one — Claude's "waiting for your input" nudge after a finished turn, or a session that hasn't reported in yet — and those get no buttons, since a button there would just send keystrokes to Claude.
 
 To turn the strip off entirely, untick **Settings → Clickable answer buttons when Claude asks a question**. The session still shows *Needs you*; you answer in the terminal as usual.
+
+### Auto-approve
+
+To stop answering Claude's permission prompts yourself, tick **Auto-approve Claude's
+permission prompts** when creating a Claude session, or click the shield button in a
+running session's header (it asks you to confirm). Mission Control then answers every
+approval prompt in that session with Yes, so Claude runs commands and edits files
+without waiting for you.
+
+- **Questions and plan approvals still come to you.** Only yes/no approvals are
+  answered automatically.
+- **Your permission rules still apply.** Anything a deny rule blocks is still blocked.
+  Auto-approve only answers prompts that would otherwise have been shown.
+- **Every automatic approval is logged** in the Activity panel as *Auto-approved
+  Bash: …*, so there is a record of what ran unreviewed.
+- **It's per session and never remembered.** It is off for every new session unless
+  you tick it, and a session resumed from Previous starts with it off. While it's
+  on, the header button is highlighted, the pane's status line says
+  *AUTO-APPROVE*, and the sidebar row shows an *auto-approve* tag.
+
+Use it with care: with every prompt answered Yes, nothing stops a command you
+wouldn't have approved — including one prompted by something Claude read in a file
+or web page.
 
 ### Layout
 
@@ -208,6 +232,8 @@ If you only need Linux-side root, a WSL session's `sudo` needs no Windows elevat
 - **Session stuck at "Starting"** — if the directory is new to Claude, its trust prompt appears in the terminal before hooks start firing; answer it in the pane. After 45 seconds with no signal the session flips to "Needs you" and says so rather than sitting on "Starting" forever.
 - **`claude` not found** — ensure the Claude Code CLI is installed and on PATH, then restart the app.
 - **WSL option missing** — no distros detected (`wsl --list --quiet`); Docker/Rancher data distros are filtered out.
+- **Claude Code (WSL) session exits straight away saying Claude isn't installed** — install Claude Code inside the distro (it's separate from the Windows install), make sure `claude` runs in a normal WSL terminal, then launch again.
+- **Claude Code (WSL) session runs but stays on "Starting" / "no hook signal"** — its hooks reach Mission Control by calling Windows' `curl.exe`, which needs WSL interop. Check `/etc/wsl.conf` in the distro doesn't set `enabled = false` under `[interop]`. Changing WSL's networking mode isn't needed.
 - **Token counts missing** — usage is parsed from the transcript in `~/.claude/projects` (or `%CLAUDE_CONFIG_DIR%\projects` when that is set).
 - **"Restart as administrator" reports an error** — the UAC prompt was declined, or policy (AppLocker/WDAC, or UAC configured to deny elevation) blocked it. The current instance is left running untouched.
 

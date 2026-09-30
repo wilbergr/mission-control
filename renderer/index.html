@@ -72,12 +72,16 @@
       <label>Type
         <span class="radio-row">
           <label><input type="radio" name="kind" value="claude" checked /> Claude Code</label>
-          <label><input type="radio" name="kind" value="shell" /> PowerShell</label>
-          <label id="nf-wsl-label" style="display:none"><input type="radio" name="kind" value="wsl" /> WSL
-            <select id="nf-distro"></select>
+          <label class="nf-wsl-only" style="display:none" title="Claude Code running inside a WSL distribution, with the same status, answer buttons and auto-approve as a Windows Claude session. Claude Code must be installed inside the distribution.">
+            <input type="radio" name="kind" value="wslclaude" /> Claude Code (WSL)
           </label>
+          <label><input type="radio" name="kind" value="shell" /> PowerShell</label>
+          <label class="nf-wsl-only" style="display:none"><input type="radio" name="kind" value="wsl" /> WSL</label>
         </span>
         <span id="nf-elev-hint" class="hint"></span>
+      </label>
+      <label id="nf-distro-row" style="display:none">Distribution
+        <select id="nf-distro"></select>
       </label>
       <label>Directory
         <span class="row">
@@ -109,6 +113,9 @@
           <textarea id="nf-prompt" rows="2" spellcheck="false" placeholder="e.g. Review the failing tests in this repo and fix them"></textarea>
         </label>
         <label class="check"><input id="nf-continue" type="checkbox" /> Continue most recent conversation in this directory</label>
+        <label class="check" title="Mission Control answers Claude's approval prompts with Yes. Questions and plan approvals still come to you. You can switch this on or off later from the session's header.">
+          <input id="nf-autoapprove" type="checkbox" /> Auto-approve Claude's permission prompts
+        </label>
         <label class="check"><input id="nf-worktree" type="checkbox" disabled /> Run in a new git worktree (parallel-safe)
           <input id="nf-branch" type="text" spellcheck="false" placeholder="branch name" disabled />
         </label>

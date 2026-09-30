@@ -47,10 +47,22 @@ function notificationAwaitsInput(payload) {
   return /permission/i.test(String((payload && payload.message) || ''));
 }
 
+// Auto-approve answers approvals only. These two raise a permission request too,
+// but they are really questions for the person — a multiple-choice answer, and
+// the plan someone chose plan mode in order to review — so they always reach them.
+const NEVER_AUTO_APPROVE = new Set(['AskUserQuestion', 'ExitPlanMode']);
+
+// The hook reply that answers a permission prompt on the user's behalf
+// (Claude Code 2.1.x PermissionRequest output). It approves this one call only.
+const ALLOW_DECISION = {
+  hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } },
+};
+
 const HOOK_EVENTS = [
   'SessionStart',
   'UserPromptSubmit',
   'PreToolUse',
+  'PermissionRequest', // only fires when Claude is about to show an approval prompt
   'PostToolUse',
   'Notification',
   'Stop',
@@ -117,6 +129,47 @@ function transcriptPath(cwd, claudeSessionId) {
   return path.join(projectsRoot(), transcriptDirFor(cwd), `${claudeSessionId}.jsonl`);
 }
 
+// ---- Claude inside WSL ('wslclaude') ------------------------------------------
+
+const SYS32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+const WSL_EXE = path.join(SYS32, 'wsl.exe');
+const WIN_CURL = path.join(SYS32, 'curl.exe');
+
+/** Both kinds run Claude and report through hooks; only the launch differs. */
+function isClaudeKind(kind) {
+  return kind === 'claude' || kind === 'wslclaude';
+}
+
+// Windows path -> the same place seen from inside WSL. \\wsl.localhost\<distro>\…
+// (and \\wsl$\…) are the distro's own files; drive paths assume WSL's default
+// automount root, /mnt/. Returns null for anything else (e.g. a network share).
+function toWslPath(p) {
+  const s = String(p || '');
+  const unc = /^\\\\wsl(?:\.localhost|\$)\\([^\\]+)(.*)$/i.exec(s);
+  if (unc) return { distro: unc[1], path: unc[2].replace(/\\/g, '/') || '/' };
+  const drive = /^([A-Za-z]):(.*)$/.exec(s);
+  if (drive) return { distro: null, path: `/mnt/${drive[1].toLowerCase()}${drive[2].replace(/\\/g, '/') || '/'}` };
+  return null;
+}
+
+// Path inside WSL -> a path Windows can open (used for Claude's transcript).
+function fromWslPath(p, distro) {
+  const s = String(p || '');
+  const m = /^\/mnt\/([a-z])(\/.*)?$/.exec(s);
+  if (m) return `${m[1].toUpperCase()}:${(m[2] || '/').replace(/\//g, '\\')}`;
+  return `\\\\wsl.localhost\\${distro}${s.replace(/\//g, '\\')}`;
+}
+
+// Claude runs through the distro's login + interactive bash, so ~/.profile and
+// ~/.bashrc both apply: nvm-style installs put claude on PATH only from
+// .bashrc, past its "not interactive, return" guard. `exec` replaces bash, so
+// the PTY's process is Claude itself. Claude's arguments travel as "$@", never
+// through the script text, so nothing in them is ever parsed by the shell.
+const WSL_CLAUDE_LAUNCH = 'exec claude "$@"';
+function wslClaudeArgs(distro, cdPath, claudeArgs) {
+  return ['-d', distro, '--cd', cdPath, '--exec', 'bash', '-lic', WSL_CLAUDE_LAUNCH, 'claude', ...claudeArgs];
+}
+
 function stripAnsi(s) {
   return s.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b[()][A-Z0-9]/g, '');
 }
@@ -155,42 +208,38 @@ class SessionManager extends EventEmitter {
    */
   create(opts) {
     const id = `s${++this.counter}-${Date.now().toString(36)}`;
-    const kind = ['shell', 'wsl'].includes(opts.kind) ? opts.kind : 'claude';
+    const kind = ['shell', 'wsl', 'wslclaude'].includes(opts.kind) ? opts.kind : 'claude';
     let cwd = opts.cwd;
     if (!cwd) {
       // shells may omit the directory and open at home; Claude needs a project
-      if (kind === 'claude') throw new Error('Directory is required for Claude sessions');
+      if (isClaudeKind(kind)) throw new Error('Directory is required for Claude sessions');
       cwd = os.homedir();
     }
     if (!fs.existsSync(cwd)) throw new Error(`Directory does not exist: ${cwd}`);
     const addDirs = (opts.addDirs || []).filter(Boolean);
+    let distro = opts.distro || null;
 
     let file, args;
     let notice = null; // surfaced in the UI when we had to change what was asked for
     if (kind === 'claude') {
-      const settingsPath = this._writeHookSettings(id);
-      args = ['--settings', settingsPath];
-      for (const d of addDirs) args.push('--add-dir', d);
-      // A stale --resume id (or --continue with no history) makes Claude print
-      // "No conversation found …" and sit there with no hooks — a dead session.
-      // Check first and fall back to a fresh conversation in the same directory.
-      let resume = opts.resume || null;
-      let cont = !!opts.continue;
-      if (resume && this._resumeUnavailable(cwd, resume)) {
-        notice = 'Saved conversation not found for this directory — started a fresh session instead.';
-        resume = null;
-      }
-      if (cont && this._noTranscripts(cwd)) {
-        notice = 'No previous conversation in this directory — started a fresh session instead.';
-        cont = false;
-      }
-      if (cont) args.push('--continue');
-      if (resume) args.push('--resume', resume);
-      args.push(...splitArgs(opts.extraArgs));
-      // one-shot starting prompt (positional arg); deliberately not persisted,
-      // so restore/resume won't replay it
-      if (opts.initialPrompt) args.push(opts.initialPrompt);
+      ({ args, notice } = this._claudeArgs(opts, cwd, this._writeHookSettings(id), addDirs, true));
       file = this.claudePath || 'claude';
+    } else if (kind === 'wslclaude') {
+      const inWsl = toWslPath(cwd);
+      if (!inWsl) throw new Error(`WSL can't open ${cwd}. Use a drive path or a \\\\wsl.localhost\\ path.`);
+      // a \\wsl.localhost\<distro>\ path names its own distro
+      distro = inWsl.distro || distro;
+      if (!distro) throw new Error('Choose a WSL distribution for this session.');
+      const settings = toWslPath(this._writeHookSettings(id, { wsl: true })).path;
+      const dirs = addDirs.map((d) => (toWslPath(d) || { path: d }).path);
+      // No pre-flight: Claude keeps this distro's transcripts inside Linux, so
+      // whether a --resume/--continue can succeed is undecidable from here —
+      // the documented fallback is to let Claude make the call.
+      ({ args } = this._claudeArgs(opts, cwd, settings, dirs, false));
+      // Drive paths go to --cd as-is (wsl translates them); a distro path goes
+      // as the Linux path it is.
+      args = wslClaudeArgs(distro, inWsl.distro ? inWsl.path : cwd, args);
+      file = WSL_EXE;
     } else if (kind === 'wsl') {
       file = 'wsl.exe';
       // blank directory -> Linux home (~), not the mapped Windows home
@@ -219,18 +268,27 @@ class SessionManager extends EventEmitter {
       name: opts.name || defaultName,
       kind,
       cwd,
-      homeDefault: !opts.cwd && kind !== 'claude', // launched with blank dir
+      homeDefault: !opts.cwd && !isClaudeKind(kind), // launched with blank dir
       addDirs,
       extraArgs: opts.extraArgs || '',
-      distro: opts.distro || null,
+      distro,
       theme: opts.theme || null, // per-session color scheme override
+      // Answer Claude's permission prompts with "allow". Deliberately never
+      // persisted (not in snapshotSessions/mergeHistory): relaunching an old
+      // session must not silently come back approving everything.
+      autoApprove: isClaudeKind(kind) && opts.autoApprove === true,
       pid: proc.pid,
       proc,
       buffer: '',
-      status: kind === 'claude' ? 'starting' : 'running',
+      status: isClaudeKind(kind) ? 'starting' : 'running',
       statusSince: Date.now(),
       activity:
-        kind === 'claude' ? 'Starting Claude…' : kind === 'wsl' ? `WSL ${opts.distro || 'default'}` : 'Shell session',
+        kind === 'claude' ? 'Starting Claude…'
+          : kind === 'wslclaude' ? `Starting Claude in ${distro}…`
+          : kind === 'wsl' ? `WSL ${opts.distro || 'default'}` : 'Shell session',
+      // wslclaude: Claude's own transcript path from the hook payloads, a Linux
+      // path; token usage is read from it through \\wsl.localhost.
+      transcriptPath: null,
       hooksSeen: false,
       claudeSessionId: null, // Claude's own session UUID (from hook payloads)
       pendingQuestion: null, // AskUserQuestion payload while Claude waits on a choice
@@ -247,14 +305,17 @@ class SessionManager extends EventEmitter {
     };
     this.sessions.set(id, s);
     if (notice) s.activity = notice;
-    if (kind === 'claude') {
+    if (isClaudeKind(kind)) {
       // Nothing from Claude at all after a generous grace period means the
       // session is stuck (unanswered prompt in the terminal, a launch error we
       // don't recognize, hooks blocked). Say so instead of showing "Starting".
       s.startTimer = setTimeout(() => {
         s.startTimer = null;
         if (s.hooksSeen || s.status !== 'starting') return;
-        s.notice = s.notice || 'No signal from Claude yet — check this session\'s terminal for a prompt or error.';
+        s.notice = s.notice || (kind === 'wslclaude'
+          // in WSL the hooks reach us through Windows' curl.exe (WSL interop)
+          ? `No signal from Claude yet — check the terminal for a prompt or error. If Claude is running normally, WSL interop may be switched off in ${distro} (/etc/wsl.conf); status and auto-approve need it.`
+          : 'No signal from Claude yet — check this session\'s terminal for a prompt or error.');
         s.awaitingInput = false; // an explanation, not a question
         this._setStatus(s, 'attention', 'No signal from Claude yet — check the terminal');
         this._pushActivity(s, 'attention', 'No hook signal after 45s — session may be waiting in the terminal');
@@ -266,7 +327,7 @@ class SessionManager extends EventEmitter {
       if (s.buffer.length > MAX_BUFFER_CHARS) {
         s.buffer = s.buffer.slice(s.buffer.length - MAX_BUFFER_CHARS);
       }
-      if (s.kind === 'claude' && !s.hooksSeen && s.status !== 'exited') {
+      if (isClaudeKind(s.kind) && !s.hooksSeen && s.status !== 'exited') {
         // Bell heuristic: only trusted when hooks aren't reporting (e.g. hooks
         // misconfigured) — Claude rings BEL when it needs attention.
         // Before any hook, a bell almost always means an interactive menu —
@@ -283,6 +344,11 @@ class SessionManager extends EventEmitter {
     proc.onExit(({ exitCode }) => {
       s.exitCode = exitCode;
       this._clearStartTimer(s);
+      // bash's "command not found" is 127: Claude isn't installed in the distro,
+      // or not on its PATH. Say that rather than just "Exited (code 127)".
+      if (s.kind === 'wslclaude' && exitCode === 127 && !s.hooksSeen) {
+        s.notice = `Claude Code isn't installed in ${s.distro}, or isn't on its PATH. Install it inside WSL, then launch again.`;
+      }
       this._setStatus(s, 'exited', `Exited (code ${exitCode})`);
       if (s.removed) return; // remove() already told the renderer this one is gone
       this._pushActivity(s, 'exit', `Process exited with code ${exitCode}`);
@@ -290,9 +356,39 @@ class SessionManager extends EventEmitter {
     });
 
     this.emit('created', this.describe(s));
-    this._pushActivity(s, 'spawn', kind === 'claude' ? 'Claude session launched' : 'Terminal launched');
+    this._pushActivity(s, 'spawn',
+      kind === 'claude' ? 'Claude session launched'
+        : kind === 'wslclaude' ? `Claude session launched in ${distro}` : 'Terminal launched');
     if (notice) this._pushActivity(s, 'notice', notice);
     return this.describe(s);
+  }
+
+  // Claude's command-line arguments, shared by both Claude kinds. `preflight`
+  // checks --resume/--continue against the transcript store first: a stale id,
+  // or --continue with no history, makes Claude print "No conversation found …"
+  // and sit there with no hooks — a dead session — so we fall back to a fresh
+  // conversation in the same directory instead.
+  _claudeArgs(opts, cwd, settingsPath, addDirs, preflight) {
+    const args = ['--settings', settingsPath];
+    let notice = null;
+    for (const d of addDirs) args.push('--add-dir', d);
+    let resume = opts.resume || null;
+    let cont = !!opts.continue;
+    if (preflight && resume && this._resumeUnavailable(cwd, resume)) {
+      notice = 'Saved conversation not found for this directory — started a fresh session instead.';
+      resume = null;
+    }
+    if (preflight && cont && this._noTranscripts(cwd)) {
+      notice = 'No previous conversation in this directory — started a fresh session instead.';
+      cont = false;
+    }
+    if (cont) args.push('--continue');
+    if (resume) args.push('--resume', resume);
+    args.push(...splitArgs(opts.extraArgs));
+    // one-shot starting prompt (positional arg); deliberately not persisted,
+    // so restore/resume won't replay it
+    if (opts.initialPrompt) args.push(opts.initialPrompt);
+    return { args, notice };
   }
 
   kill(id) {
@@ -341,6 +437,14 @@ class SessionManager extends EventEmitter {
     this.emit('status', this.describe(s));
   }
 
+  setAutoApprove(id, on) {
+    const s = this.sessions.get(id);
+    if (!s || !isClaudeKind(s.kind)) return;
+    s.autoApprove = on === true;
+    this._pushActivity(s, 'autoapprove', s.autoApprove ? 'Auto-approve turned on' : 'Auto-approve turned off');
+    this.emit('status', this.describe(s));
+  }
+
   setTheme(id, theme) {
     const s = this.sessions.get(id);
     if (!s) return;
@@ -355,7 +459,7 @@ class SessionManager extends EventEmitter {
       if (!s || s.status === 'exited') continue;
       let payload = text;
       if (/\r|\n/.test(text)) {
-        if (s.kind === 'claude') {
+        if (isClaudeKind(s.kind)) {
           // bracketed paste keeps multi-line input as one message
           payload = `\x1b[200~${text}\x1b[201~`;
         } else {
@@ -370,7 +474,7 @@ class SessionManager extends EventEmitter {
   interrupt(id) {
     const s = this.sessions.get(id);
     if (!s || s.status === 'exited') return;
-    s.proc.write(s.kind === 'claude' ? '\x1b' : '\x03');
+    s.proc.write(isClaudeKind(s.kind) ? '\x1b' : '\x03');
   }
 
   list() {
@@ -403,6 +507,7 @@ class SessionManager extends EventEmitter {
       notice: s.notice,
       distro: s.distro,
       theme: s.theme,
+      autoApprove: s.autoApprove,
       exitCode: s.exitCode,
     };
   }
@@ -472,6 +577,10 @@ class SessionManager extends EventEmitter {
     if (!s || s.status === 'exited') return;
     s.hooksSeen = true;
     this._clearStartTimer(s); // Claude is talking to us; the watchdog is moot
+    // Claude reports its own transcript location. For Windows sessions it's
+    // derived from the cwd (transcriptPath); inside WSL it's a Linux path under
+    // the distro user's home, which we couldn't know in advance.
+    if (s.kind === 'wslclaude' && typeof payload.transcript_path === 'string') s.transcriptPath = payload.transcript_path;
     if (payload.session_id) s.claudeSessionId = payload.session_id;
 
     const ev = payload.hook_event_name;
@@ -532,6 +641,14 @@ class SessionManager extends EventEmitter {
       case 'SessionEnd':
         this._pushActivity(s, 'end', `Claude session ended (${payload.reason || 'exit'})`);
         break;
+      case 'PermissionRequest': {
+        // Returning nothing leaves Claude to show its normal prompt (which then
+        // sends a permission_prompt Notification and raises the answer strip).
+        if (!s.autoApprove || NEVER_AUTO_APPROVE.has(payload.tool_name)) return undefined;
+        // Logged so there is always a record of what was approved without a person.
+        this._pushActivity(s, 'autoapprove', `Auto-approved ${describeTool(payload.tool_name, payload.tool_input)}`);
+        return ALLOW_DECISION;
+      }
       case 'SubagentStop':
       default:
         break;
@@ -542,7 +659,10 @@ class SessionManager extends EventEmitter {
   // <config dir>/projects/<encoded-cwd>/<claude-session-uuid>.jsonl).
   async _updateUsage(s) {
     if (!s.claudeSessionId) return;
-    const file = transcriptPath(s.cwd, s.claudeSessionId);
+    const file = s.kind === 'wslclaude'
+      ? s.transcriptPath && fromWslPath(s.transcriptPath, s.distro)
+      : transcriptPath(s.cwd, s.claudeSessionId);
+    if (!file) return;
     try {
       const stat = await fs.promises.stat(file);
       if (stat.size > 50_000_000) return; // sanity cap
@@ -591,12 +711,20 @@ class SessionManager extends EventEmitter {
 
   // ---- hook settings generation ---------------------------------------------
 
-  _writeHookSettings(id) {
+  _writeHookSettings(id, { wsl = false } = {}) {
     // curl.exe ships with Windows 10 1803+. --noproxy avoids corporate proxy
     // env vars hijacking loopback traffic; "|| exit 0" keeps a dead IDE from
     // surfacing hook errors inside the Claude session.
+    //
+    // Inside WSL the command still calls *Windows'* curl.exe, via WSL interop.
+    // Under WSL2's default NAT networking, 127.0.0.1 inside Linux is Linux's own
+    // loopback and can't reach this server; curl.exe runs on the Windows side,
+    // so the HookServer can stay bound to Windows loopback only. Linux's own
+    // curl would need mirrored networking, or the server exposed on WSL's
+    // virtual adapter — not acceptable now that a reply can approve commands.
+    const curl = wsl ? toWslPath(WIN_CURL).path : 'curl';
     const cmd =
-      `curl -s --noproxy "*" --max-time 3 -X POST ` +
+      `${curl} -s --noproxy "*" --max-time 3 -X POST ` +
       `"http://127.0.0.1:${this.hookPort}/hook/${id}" ` +
       `--data-binary @- -H "Content-Type: application/json" || exit 0`;
     const hook = { type: 'command', command: cmd, timeout: 5 };
@@ -610,4 +738,13 @@ class SessionManager extends EventEmitter {
   }
 }
 
-module.exports = { SessionManager, splitArgs, notificationAwaitsInput };
+module.exports = {
+  SessionManager,
+  splitArgs,
+  notificationAwaitsInput,
+  isClaudeKind,
+  toWslPath,
+  fromWslPath,
+  wslClaudeArgs,
+  WSL_CLAUDE_LAUNCH,
+};

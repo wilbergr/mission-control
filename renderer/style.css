@@ -337,6 +337,16 @@ button svg { vertical-align: -1px; }
 }
 .pane-head .dot, .pane-head .ed-dirty { flex: none; }
 .pane-head button { padding: 0 6px; font-size: 11px; line-height: 17px; flex: none; }
+/* Auto-approve must be unmissable when on: it means Claude acts unreviewed. */
+.pane-head button.b-auto.on { color: var(--attention); border-color: var(--attention); background: transparent; }
+.sess .auto-flag {
+  color: var(--attention);
+  border: 1px solid var(--attention);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 13px;
+}
 .pane-term { flex: 1; min-height: 0; padding: 2px 0 0 4px; }
 .pane-term .xterm { height: 100%; }
 

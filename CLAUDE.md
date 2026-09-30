@@ -29,7 +29,7 @@ Electron app. **The main process owns all state**; the renderer is a projection 
 
 ### How session status works (the app's whole reason to exist)
 
-Claude sessions are spawned as `claude --settings <generated>.json …`. `SessionManager._writeHookSettings` writes a settings file registering every event in `HOOK_EVENTS` to a `curl -s --noproxy "*" … POST http://127.0.0.1:<port>/hook/<sessionId>` command. Claude pipes the hook payload on stdin; `HookServer` responds `200 {}` immediately (so hooks never stall Claude) and hands the payload to `SessionManager.handleHookEvent`, which maps it onto a status: `starting → working / attention / ready → exited` (plain shells are just `running`).
+Claude sessions are spawned as `claude --settings <generated>.json …`. `SessionManager._writeHookSettings` writes a settings file registering every event in `HOOK_EVENTS` to a `curl -s --noproxy "*" … POST http://127.0.0.1:<port>/hook/<sessionId>` command. Claude pipes the hook payload on stdin; `HookServer` hands it to `SessionManager.handleHookEvent` (synchronous and cheap, so hooks never stall Claude) and answers `200` with whatever that returns, else `{}`. The response body is what the `curl` command prints, and Claude reads that stdout as the hook's JSON output — which is how auto-approve answers a `PermissionRequest` (below). `handleHookEvent` maps each event onto a status: `starting → working / attention / ready → exited` (plain shells are just `running`).
 
 Consequences to keep in mind when changing anything here:
 
@@ -37,6 +37,16 @@ Consequences to keep in mind when changing anything here:
 - A user-supplied `--settings` in Extra CLI args replaces the generated one and silently kills all status reporting. The sidebar's "no hook signal yet" (`hooksSeen === false`) is the tell. A terminal-BEL heuristic in `proc.onData` is the only fallback, and it is deliberately trusted *only* while `hooksSeen` is false.
 - `PreToolUse` for `AskUserQuestion` is special-cased: the structured `tool_input` is normalized into `pendingQuestion` so the renderer can draw real answer buttons.
 - Token usage is not from hooks — after `Stop`, `_updateUsage` reads Claude's own transcript at `<CLAUDE_CONFIG_DIR or ~/.claude>/projects/<cwd with every non-alphanumeric replaced by '-'>/<claudeSessionId>.jsonl` (`projectsRoot()` / `transcriptPath()`). Failures are swallowed — usage is best-effort.
+
+### Claude inside WSL (`kind: 'wslclaude'`)
+
+A second Claude kind: same hooks, status, answer strip and auto-approve, only the launch differs. **Check `isClaudeKind(kind)`, never `kind === 'claude'`**, for anything about "is this a Claude session" (main exports it; the renderer has `GWT.util.isClaudeKind`). Launch is `wsl.exe -d <distro> --cd <dir> --exec bash -lic 'exec claude "$@"' claude <args…>` (`wslClaudeArgs`):
+
+- `bash -lic` so both `~/.profile` and `~/.bashrc` run — nvm-style installs put `claude` on PATH only from `.bashrc`, past its non-interactive guard. `exec` makes the PTY's process Claude itself. Arguments travel as `"$@"`, never through the script text, so a prompt containing quotes, `$` or backticks reaches Claude untouched (tested through node-pty → wsl.exe → bash).
+- **Hooks call Windows' `curl.exe` through WSL interop** (`_writeHookSettings(id, {wsl:true})`), not Linux's `curl`. Under WSL2's default NAT networking, `127.0.0.1` inside Linux is Linux's own loopback and can't reach `HookServer`; `curl.exe` runs on the Windows side, so the server stays bound to Windows loopback only. Don't "fix" this by binding the server to WSL's virtual adapter — a hook reply can now approve commands. Needs interop on (the default); mirrored networking is *not* needed.
+- Paths: `toWslPath` maps a drive path to `/mnt/<d>/…` (assumes the default automount root) and `\\wsl.localhost\<distro>\…` / `\\wsl$\…` to the distro's own path — a UNC cwd also names the distro. The settings file and `--add-dir`s are translated; `--cd` gets drive paths as-is (wsl translates them).
+- Transcripts live inside Linux under the distro user's home, which isn't known in advance, so `handleHookEvent` records the payload's `transcript_path` and `_updateUsage` reads it back through `fromWslPath` (`\\wsl.localhost\…`). The resume/continue **pre-flight is skipped** for this kind — undecidable from Windows, so Claude decides, per the rule below.
+- Claude not installed in the distro → bash exits **127** before any hook; `onExit` turns that into a notice rather than a bare "Exited (code 127)".
 
 ### Startup failure modes are handled up front, not left to hang
 
@@ -104,6 +114,14 @@ Because a hidden tile keeps receiving output sized for the pop-out window, re-do
 - The pre-hook bell → true (in practice the folder-trust menu, which draws before any hook fires).
 - Watchdog and failed-resume → false; they're explanations, not questions.
 - `_setStatus` clears it on any move out of `attention`, so it can't go stale.
+
+**Auto-approve** (`s.autoApprove`, per Claude session) answers approval prompts through the **`PermissionRequest`** hook, not keystrokes and not `--dangerously-skip-permissions`. That hook fires only when Claude is about to show an approval dialog, so permission rules, deny rules and the permission mode all still apply first. When the flag is on, `handleHookEvent` returns `ALLOW_DECISION` (`{hookSpecificOutput:{hookEventName:'PermissionRequest',decision:{behavior:'allow'}}}` — Claude Code 2.1.x schema) and logs `Auto-approved <tool>` to Activity; otherwise it returns nothing and Claude prompts as usual. Rules that are deliberate:
+
+- `NEVER_AUTO_APPROVE` keeps `AskUserQuestion` and `ExitPlanMode` with the person — a multiple-choice answer and a plan review are questions, not approvals.
+- Never persisted: it is left out of `snapshotSessions`/`mergeHistory` and out of `extraArgs`, so a restored or relaunched session can't silently come back approving everything. The New Session checkbox resets after each use.
+- Claude sessions only (`setAutoApprove` ignores shells). Turning it on from the pane header asks for confirmation; turning it off doesn't.
+- When on it is always visible: `.b-auto.on` in the pane header, `AUTO-APPROVE` in the pane's status line, and an `.auto-flag` on the sidebar row.
+- Keystroke injection was rejected on purpose: it races the menu paint, can land in the input box as a message, and would sidestep whatever a machine's managed Claude Code policy decides, where a hook decision goes through Claude's own permission code.
 
 Given a prompt is up, `parseMenuFromScreen` extracts options from the *visible xterm screen* (strips box-drawing chars, finds the last cluster of `1.`/`2.`… lines), falling back to `info.pendingQuestion`. Don't use the parser as the evidence that a prompt exists — it matches any numbered list, including one in Claude's own reply, and not every Claude menu is numbered (the trust menu is a bare `> No, exit` list with an ASCII cursor under ConPTY). Menus often finish painting after the status event, so parsing is retried (250 ms / 1200 ms) and again from `writeData`. Clicking a button writes the digit to the PTY.
 

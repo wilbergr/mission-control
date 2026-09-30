@@ -139,7 +139,7 @@ class Persistence {
         // same runtime session earlier in this run (before its uuid was known)
         hist.find((h) => h.runKey === s.id) ||
         // plain shells: collapse by identity so history isn't spammed
-        (s.kind !== 'claude' &&
+        (s.kind !== 'claude' && s.kind !== 'wslclaude' &&
           hist.find((h) => h.kind === s.kind && h.cwd === s.cwd && h.name === s.name && (h.distro || null) === (s.distro || null))) ||
         // one entry per name: reuse it in place (keeps hid stable) rather than
         // adding a second entry for dedupeByName to collapse later

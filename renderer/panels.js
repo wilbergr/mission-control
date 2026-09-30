@@ -40,12 +40,13 @@ window.GWT = window.GWT || {};
           <span class="st ${s.status}">${STATUS_LABEL[s.status] || s.status}</span>
           <span class="dur" data-since="${s.statusSince}">${GWT.util.fmtDuration(Date.now() - s.statusSince)}</span>
           <span>${
-            s.kind === 'claude'
-              ? s.usage
+            GWT.util.isClaudeKind(s.kind)
+              ? (s.kind === 'wslclaude' ? `· wsl ${esc(s.distro || '')} ` : '') + (s.usage
                 ? `· ctx ${GWT.util.fmtTokens(s.usage.ctx)} · out ${GWT.util.fmtTokens(s.usage.out)}`
-                : s.hooksSeen ? '' : '· no hook signal yet'
+                : s.hooksSeen ? '' : '· no hook signal yet')
               : s.kind === 'wsl' ? `· wsl ${esc(s.distro || '')}` : '· shell'
           }</span>
+          ${s.autoApprove ? '<span class="auto-flag" title="Permission prompts are answered Yes automatically">auto-approve</span>' : ''}
         </div>
         <div class="activity">${esc(s.activity || '')}</div>
         ${s.notice ? `<div class="notice" title="${esc(s.notice)}">${esc(s.notice)}</div>` : ''}
@@ -308,7 +309,7 @@ window.GWT = window.GWT || {};
 
   function buildPrevItem(h, group) {
     const item = el('div', 'sess prev');
-    const resumable = h.kind === 'claude' && h.claudeSessionId;
+    const resumable = GWT.util.isClaudeKind(h.kind) && h.claudeSessionId;
     item.innerHTML = `
       <div class="row1">
         <span class="dot exited"></span>
@@ -316,7 +317,7 @@ window.GWT = window.GWT || {};
         <span class="idx">${GWT.util.fmtAgo(h.lastUsed)}</span>
       </div>
       <div class="statusline">
-        <span>${h.kind}${h.distro ? ':' + esc(h.distro) : ''}</span>
+        <span>${esc(GWT.util.kindLabel(h.kind, h.distro))}</span>
         <span>${resumable ? '· resumable' : ''}</span>
       </div>
       <div class="cwd" title="${esc(h.cwd)}">${esc(h.cwd)}</div>
@@ -639,9 +640,9 @@ window.GWT = window.GWT || {};
       case 'focused':
         return GWT.state.focused ? [GWT.state.focused] : [];
       case 'claude':
-        return all.filter((s) => s.kind === 'claude').map((s) => s.id);
+        return all.filter((s) => GWT.util.isClaudeKind(s.kind)).map((s) => s.id);
       case 'attention':
-        return all.filter((s) => s.kind === 'claude' && (s.status === 'attention' || s.status === 'ready')).map((s) => s.id);
+        return all.filter((s) => GWT.util.isClaudeKind(s.kind) && (s.status === 'attention' || s.status === 'ready')).map((s) => s.id);
       case 'all':
       default:
         return all.map((s) => s.id);

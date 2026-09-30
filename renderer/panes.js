@@ -85,6 +85,7 @@ window.GWT = window.GWT || {};
         <span class="dot"></span>
         <span class="name"></span>
         <span class="meta"></span>
+        ${GWT.util.isClaudeKind(info.kind) ? '<button class="b-auto" data-icon="autoOk"></button>' : ''}
         <button class="b-theme" title="Color scheme for this session" data-icon="swatch"></button>
         <button class="b-diff" title="Working-tree diff for this session" data-icon="diff"></button>
         <button class="b-pop" title="Pop out to its own window" data-icon="popout"></button>
@@ -175,6 +176,28 @@ window.GWT = window.GWT || {};
     el.querySelector('.b-theme').addEventListener('click', (e) => {
       e.stopPropagation();
       showThemeMenu(e.currentTarget, info.id);
+    });
+    el.querySelector('.b-auto')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const on = !GWT.state.sessions.get(info.id)?.autoApprove;
+      // Turning it on lets Claude act without review, so ask once; turning it
+      // off is always safe and immediate.
+      if (on) {
+        const s = GWT.state.sessions.get(info.id);
+        const ok = await GWT.ui.confirmDialog({
+          title: `Auto-approve for "${s ? s.name : 'this session'}"?`,
+          message:
+            "Mission Control will answer every one of Claude's permission prompts in this session with Yes, " +
+            'so it can run commands and change files without you reviewing them. Questions and plan ' +
+            'approvals still come to you, and each approval is logged in Activity.',
+          buttons: [
+            { label: 'Turn on auto-approve', value: 'yes', danger: true },
+            { label: 'Cancel', value: null },
+          ],
+        });
+        if (!ok) return;
+      }
+      window.gwt.sessions.setAutoApprove(info.id, on);
     });
     el.querySelector('.b-pop').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -309,9 +332,17 @@ window.GWT = window.GWT || {};
     const usage = info.usage
       ? ` · ctx ${GWT.util.fmtTokens(info.usage.ctx)} · out ${GWT.util.fmtTokens(info.usage.out)}`
       : '';
+    const auto = info.autoApprove ? ' · AUTO-APPROVE' : '';
     p.els.meta.textContent =
-      `${STATUS_LABEL[info.status] || info.status} · ${dur}${usage} — ${info.activity || ''}  ·  ${shortPath(info.cwd)}`;
+      `${STATUS_LABEL[info.status] || info.status}${auto} · ${dur}${usage} — ${info.activity || ''}  ·  ${shortPath(info.cwd)}`;
     p.el.classList.toggle('attention', info.status === 'attention');
+    const autoBtn = p.el.querySelector('.b-auto');
+    if (autoBtn) {
+      autoBtn.classList.toggle('on', !!info.autoApprove);
+      autoBtn.title = info.autoApprove
+        ? "Auto-approve is ON: Claude's permission prompts are answered Yes. Click to turn off."
+        : "Auto-approve Claude's permission prompts in this session";
+    }
     updateResponseStrip(info);
   }
 
