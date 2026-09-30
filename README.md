@@ -119,6 +119,11 @@ without waiting for you.
   Auto-approve only answers prompts that would otherwise have been shown.
 - **Every automatic approval is logged** in the Activity panel as *Auto-approved
   Bash: …*, so there is a record of what ran unreviewed.
+- **It can be time-limited.** When you turn it on — in New Session or from the
+  shield — choose how long: 1, 5, 10, 15 or 30 minutes, 1 hour, or until you turn
+  it off. When the time runs out it switches itself off and says so in Activity,
+  and Claude goes back to asking. The pane's status line and the sidebar tag count
+  down the time left. The limit holds even if your PC sleeps in the meantime.
 - **It's per session and never remembered.** It is off for every new session unless
   you tick it, and a session resumed from Previous starts with it off. While it's
   on, the header button is highlighted, the pane's status line says
@@ -133,6 +138,9 @@ or web page.
 - Sessions auto-tile into a grid; drag a pane header to reorder
 - Zoom one pane full-workspace (`Ctrl+Shift+Z` or the corners icon); click again to re-tile
 - Hide a pane from the grid without killing it (eye icon in the sidebar)
+- **Resize the side panels** by dragging their inner edge; double-click the edge to
+  put it back to its default width. Widths are remembered, and the terminal area
+  always keeps at least 320 px
 - **Pop out** any terminal or editor into its own window (arrow-out icon); **Dock** (or just close the window) brings it back into the grid. A popped-out terminal is a live mirror — you can type in either place
 - Search inside a terminal with `Ctrl+Shift+F`
 - Select with the mouse and `Ctrl+C` to copy, `Ctrl+V` to paste. `Ctrl+C` only
@@ -150,7 +158,7 @@ The right panel (`Ctrl+Shift+E`) follows the focused session:
 
 - **Files** — live tree of the session's directories with git status badges. Click a file to open it in a **Monaco editor tile** right in the grid (syntax highlighting, `Ctrl+S` to save; binary/oversized files open read-only). Editors can pop out to their own window too.
 - **Changes** — branch, ahead/behind, dirty files; click for a colorized diff. The delta icon on any pane shows the full working-tree diff for that session.
-- **Activity** — a cross-session feed of everything every Claude is doing; click an entry to jump to that session.
+- **Activity** — a cross-session feed of everything every Claude is doing. Click an entry to open it in full — the whole prompt, command, question or tool input, not just the one line that fits in the panel — with **Copy** and **Go to session** buttons. The feed keeps the newest 400 entries and lives only in memory: it isn't saved, and it starts empty each time Mission Control starts.
 
 ### Session history
 

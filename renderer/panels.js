@@ -46,7 +46,10 @@ window.GWT = window.GWT || {};
                 : s.hooksSeen ? '' : '· no hook signal yet')
               : s.kind === 'wsl' ? `· wsl ${esc(s.distro || '')}` : '· shell'
           }</span>
-          ${s.autoApprove ? '<span class="auto-flag" title="Permission prompts are answered Yes automatically">auto-approve</span>' : ''}
+          ${!s.autoApprove ? ''
+            : s.autoApproveUntil
+              ? `<span class="auto-flag" data-until="${s.autoApproveUntil}" title="Permission prompts are answered Yes automatically until the time runs out">auto-approve ${GWT.util.fmtLeft(s.autoApproveUntil)}</span>`
+              : '<span class="auto-flag" title="Permission prompts are answered Yes automatically">auto-approve</span>'}
         </div>
         <div class="activity">${esc(s.activity || '')}</div>
         ${s.notice ? `<div class="notice" title="${esc(s.notice)}">${esc(s.notice)}</div>` : ''}
@@ -368,6 +371,10 @@ window.GWT = window.GWT || {};
     document.querySelectorAll('#session-list .dur').forEach((d) => {
       d.textContent = GWT.util.fmtDuration(Date.now() - Number(d.dataset.since));
     });
+    // Countdown only — main ends the window itself and pushes a status update.
+    document.querySelectorAll('#session-list .auto-flag[data-until]').forEach((f) => {
+      f.textContent = `auto-approve ${GWT.util.fmtLeft(Number(f.dataset.until))}`;
+    });
     for (const s of GWT.state.sessions.values()) GWT.panes.updatePane(s);
   }
 
@@ -601,8 +608,65 @@ window.GWT = window.GWT || {};
     item.innerHTML = `<span class="t">${GWT.util.fmtTime(e.ts)}</span>
       <span class="who" style="color:hsl(${sessionHue(e.sessionId)} 60% var(--who-l))">${esc(e.sessionName)}</span>
       <span class="what">${esc(e.detail)}</span>`;
-    item.addEventListener('click', () => GWT.app.focusSession(e.sessionId));
+    item.title = 'Click to see this entry in full';
+    item.addEventListener('click', () => showActivity(e));
     return item;
+  }
+
+  const ACTIVITY_KIND = {
+    prompt: 'Prompt', tool: 'Tool use', attention: 'Needs you', stop: 'Finished',
+    start: 'Session start', spawn: 'Launch', exit: 'Exit', end: 'Session end',
+    compact: 'Compacting', notice: 'Notice', autoapprove: 'Auto-approve',
+  };
+
+  // One Activity entry in full. The feed row is a single truncated line; `full`
+  // (set by main where there is more to show) carries the whole prompt, command
+  // or tool input. The row used to jump straight to its session — that is now
+  // the "Go to session" button.
+  function showActivity(e) {
+    const dlg = el('dialog', 'activity-dlg');
+    dlg.innerHTML = `
+      <div class="view-head"><span class="ad-title"></span><button class="ad-x" data-icon="close" title="Close (Esc)"></button></div>
+      <div class="ad-meta"></div>
+      <pre class="ad-body"></pre>
+      <div class="dlg-buttons">
+        <button class="ad-copy">Copy</button>
+        <button class="ad-go">Go to session</button>
+        <button class="ad-close primary">Close</button>
+      </div>`;
+    GWT.icons.apply(dlg);
+    dlg.querySelector('.ad-title').textContent = e.sessionName;
+    const when = new Date(e.ts).toLocaleString([], { dateStyle: 'medium', timeStyle: 'medium' });
+    dlg.querySelector('.ad-meta').textContent = `${ACTIVITY_KIND[e.type] || e.type} · ${when}`;
+    const text = e.full || e.detail || '';
+    dlg.querySelector('.ad-body').textContent = text;
+    const done = () => {
+      dlg.close();
+      dlg.remove();
+    };
+    const go = dlg.querySelector('.ad-go');
+    if (!GWT.state.sessions.has(e.sessionId)) {
+      go.disabled = true;
+      go.title = 'That session has been closed';
+    }
+    go.addEventListener('click', () => {
+      done();
+      GWT.app.focusSession(e.sessionId);
+    });
+    const copy = dlg.querySelector('.ad-copy');
+    copy.addEventListener('click', () => {
+      window.gwt.app.clipboardWrite(text);
+      copy.textContent = 'Copied';
+      setTimeout(() => (copy.textContent = 'Copy'), 1200);
+    });
+    dlg.querySelector('.ad-close').addEventListener('click', done);
+    dlg.querySelector('.ad-x').addEventListener('click', done);
+    dlg.addEventListener('cancel', (ev) => {
+      ev.preventDefault();
+      done();
+    });
+    document.body.appendChild(dlg);
+    dlg.showModal();
   }
 
   function addFeedEntry(e) {
@@ -748,6 +812,7 @@ window.GWT = window.GWT || {};
   }
 
   GWT.ui = {
+    showActivity,
     renderSidebar,
     renderTabbar,
     confirmDialog,

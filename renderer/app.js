@@ -12,6 +12,14 @@ window.GWT = window.GWT || {};
     isClaudeKind(kind) {
       return kind === 'claude' || kind === 'wslclaude';
     },
+    /** Time left until `until` (ms timestamp), e.g. "45s", "4m", "1h 5m". */
+    fmtLeft(until) {
+      const s = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+      if (s < 60) return s + 's';
+      const m = Math.ceil(s / 60);
+      if (m < 60) return m + 'm';
+      return `${Math.floor(m / 60)}h ${m % 60}m`;
+    },
     kindLabel(kind, distro) {
       if (kind === 'wslclaude') return `claude · wsl ${distro || ''}`.trim();
       if (kind === 'wsl') return `wsl ${distro || ''}`.trim();
@@ -186,6 +194,8 @@ window.GWT = window.GWT || {};
       uiMode: GWT.state.uiMode,
       layout: GWT.state.layout,
       prevCollapsed: [...GWT.state.prevCollapsed],
+      sidebarWidth: GWT.state.sidebarWidth || null,
+      rightWidth: GWT.state.rightWidth || null,
     });
   }
 
@@ -237,6 +247,64 @@ window.GWT = window.GWT || {};
       ? 'Mission Control is running as administrator — every new session will be elevated.'
       : "Sessions run with Mission Control's privileges. For an elevated session, use Settings → Restart as administrator.";
     GWT.ui.updateAttentionCount(); // repaints the title-bar suffix
+  }
+
+  // ---- resizable side panels ------------------------------------------------
+  // Widths are CSS variables (see style.css) so .collapsed still wins. The
+  // terminal grid keeps at least MIN_CENTER px, so a panel can't be dragged
+  // wide enough to squeeze it away.
+  const PANELS = {
+    sidebar: { el: '#sidebar', handle: '#sidebar-resizer', cssVar: '--sidebar-w', pref: 'sidebarWidth', def: 250, min: 180, max: 640, grows: 1 },
+    right: { el: '#right', handle: '#right-resizer', cssVar: '--right-w', pref: 'rightWidth', def: 300, min: 220, max: 1000, grows: -1 },
+  };
+  const MIN_CENTER = 320;
+
+  function clampPanelWidth(key, w) {
+    const p = PANELS[key];
+    const other = PANELS[key === 'sidebar' ? 'right' : 'sidebar'];
+    const otherW = $(other.el).getBoundingClientRect().width;
+    const room = window.innerWidth - otherW - MIN_CENTER;
+    return Math.round(Math.max(p.min, Math.min(p.max, room, w)));
+  }
+
+  function setPanelWidth(key, w) {
+    const p = PANELS[key];
+    GWT.state[p.pref] = w;
+    if (w) document.documentElement.style.setProperty(p.cssVar, `${w}px`);
+    else document.documentElement.style.removeProperty(p.cssVar);
+    GWT.panes.fitAll();
+  }
+
+  for (const key of Object.keys(PANELS)) {
+    const p = PANELS[key];
+    const handle = $(p.handle);
+    handle.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = $(p.el).getBoundingClientRect().width;
+      handle.classList.add('active');
+      document.body.classList.add('resizing');
+      let frame = 0;
+      const move = (ev) => {
+        const w = clampPanelWidth(key, startW + p.grows * (ev.clientX - startX));
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => setPanelWidth(key, w));
+      };
+      const up = () => {
+        window.removeEventListener('mousemove', move);
+        window.removeEventListener('mouseup', up);
+        handle.classList.remove('active');
+        document.body.classList.remove('resizing');
+        saveUiPrefs();
+      };
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
+    });
+    handle.addEventListener('dblclick', () => {
+      setPanelWidth(key, null); // back to the default width
+      saveUiPrefs();
+    });
   }
 
   function togglePanel(sel, force) {
@@ -375,6 +443,9 @@ window.GWT = window.GWT || {};
     }
   });
   $('#nf-dir').addEventListener('change', checkDirGit);
+  $('#nf-autoapprove').addEventListener('change', () => {
+    $('#nf-autoapprove-for').disabled = !$('#nf-autoapprove').checked;
+  });
   $('#nf-worktree').addEventListener('change', () => {
     $('#nf-branch').disabled = !$('#nf-worktree').checked;
     if ($('#nf-worktree').checked) $('#nf-branch').focus();
@@ -451,11 +522,14 @@ window.GWT = window.GWT || {};
         // a session field, not a CLI flag: it works through the hooks, and it is
         // deliberately left out of extraArgs so history/restore never replays it
         autoApprove: GWT.util.isClaudeKind(kind) && $('#nf-autoapprove').checked,
+        autoApproveMinutes: Number($('#nf-autoapprove-for').value) || 0,
       });
       dlgNew.close();
       $('#nf-name').value = '';
       $('#nf-continue').checked = false;
       $('#nf-autoapprove').checked = false; // opt in each time, never sticky
+      $('#nf-autoapprove-for').value = '0';
+      $('#nf-autoapprove-for').disabled = true;
       $('#nf-worktree').checked = false;
       $('#nf-branch').value = '';
       $('#nf-prompt').value = '';
@@ -590,6 +664,11 @@ window.GWT = window.GWT || {};
     if (['system', 'dark', 'light'].includes(prefs.uiMode)) GWT.state.uiMode = prefs.uiMode;
     applyUiMode();
     if (Array.isArray(prefs.prevCollapsed)) GWT.state.prevCollapsed = new Set(prefs.prevCollapsed);
+    // Saved panel widths, re-clamped in case the window is smaller than it was.
+    for (const key of Object.keys(PANELS)) {
+      const w = Number(prefs[PANELS[key].pref]);
+      if (w > 0) setPanelWidth(key, clampPanelWidth(key, w));
+    }
     if (['tiles', 'tabs'].includes(prefs.layout)) GWT.state.layout = prefs.layout;
     applyLayout();
     GWT.state.elevated = await window.gwt.app.isElevated();

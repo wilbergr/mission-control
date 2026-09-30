@@ -277,7 +277,7 @@ function registerIpc() {
     saveState();
   });
   // Not saved: auto-approve is never persisted (see SessionManager.create).
-  ipcMain.handle('sessions:setAutoApprove', (_e, { id, on }) => manager.setAutoApprove(id, on === true));
+  ipcMain.handle('sessions:setAutoApprove', (_e, { id, on, minutes }) => manager.setAutoApprove(id, on === true, minutes));
   ipcMain.handle('sessions:setTheme', (_e, { id, theme }) => {
     manager.setTheme(id, theme);
     saveState();

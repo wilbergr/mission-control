@@ -94,9 +94,11 @@ input[type="text"], textarea, select {
 input[type="text"]:focus, textarea:focus, select:focus { outline: 1px solid var(--accent); }
 
 /* ---------------- sidebar ---------------- */
+/* Panel widths are CSS variables so a drag can set them without an inline
+   width fighting the .collapsed rules (which, being more specific, still win). */
 #sidebar {
-  width: 250px;
-  min-width: 250px;
+  width: var(--sidebar-w, 250px);
+  min-width: var(--sidebar-w, 250px);
   background: var(--panel);
   border-right: 1px solid var(--border);
   display: flex;
@@ -121,6 +123,22 @@ input[type="text"]:focus, textarea:focus, select:focus { outline: 1px solid var(
   font-weight: 700;
 }
 .rail:hover { color: var(--text); background: var(--panel-2); }
+/* drag handles on each panel's inner edge */
+.resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 5;
+}
+#sidebar-resizer { right: -3px; }
+#right-resizer { left: -3px; }
+.resizer:hover, .resizer.active { background: var(--accent); opacity: .5; }
+#sidebar.collapsed .resizer, #right.collapsed .resizer { display: none; }
+/* while dragging: no text selection, and the resize cursor everywhere */
+body.resizing, body.resizing * { user-select: none !important; cursor: col-resize !important; }
+
 #sidebar.collapsed #left-rail { display: flex; }
 #right.collapsed #right-rail { display: flex; }
 .rail .att-badge { position: absolute; top: 34px; color: var(--attention); font-size: 11px; }
@@ -439,8 +457,8 @@ button svg { vertical-align: -1px; }
 
 /* ---------------- right panel ---------------- */
 #right {
-  width: 300px;
-  min-width: 300px;
+  width: var(--right-w, 300px);
+  min-width: var(--right-w, 300px);
   background: var(--panel);
   border-left: 1px solid var(--border);
   display: flex;
@@ -538,6 +556,26 @@ button svg { vertical-align: -1px; }
 .feed-item .who { font-weight: 600; flex: none; max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
 .feed-item .what { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .feed-item.attention .what { color: var(--attention); }
+
+/* Activity entry, in full */
+.activity-dlg { width: min(760px, 90vw); max-width: 90vw; }
+.activity-dlg .view-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.activity-dlg .ad-title { font-weight: 600; font-size: 14px; }
+.activity-dlg .ad-meta { color: var(--text-dim); font-size: 12px; margin-bottom: 10px; }
+.activity-dlg .ad-body {
+  margin: 0;
+  padding: 10px;
+  max-height: 60vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  user-select: text;
+}
 
 /* ---------------- dialogs ---------------- */
 dialog {

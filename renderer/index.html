@@ -26,6 +26,7 @@
         <span id="attention-count"></span>
       </div>
       <div class="rail" id="left-rail" title="Expand sidebar" data-icon="chevsR"></div>
+      <div class="resizer" id="sidebar-resizer" title="Drag to resize · double-click to reset"></div>
     </aside>
 
     <main id="center">
@@ -60,6 +61,7 @@
         <button id="btn-collapse-right" class="chev" title="Collapse panel (Ctrl+Shift+E)" data-icon="chevsR"></button>
       </div>
       <div class="rail" id="right-rail" title="Expand panel (Ctrl+Shift+E)" data-icon="chevsL"></div>
+      <div class="resizer" id="right-resizer" title="Drag to resize · double-click to reset"></div>
       <div id="panel-files" class="panel active"></div>
       <div id="panel-changes" class="panel"></div>
       <div id="panel-activity" class="panel"></div>
@@ -115,6 +117,15 @@
         <label class="check"><input id="nf-continue" type="checkbox" /> Continue most recent conversation in this directory</label>
         <label class="check" title="Mission Control answers Claude's approval prompts with Yes. Questions and plan approvals still come to you. You can switch this on or off later from the session's header.">
           <input id="nf-autoapprove" type="checkbox" /> Auto-approve Claude's permission prompts
+          <select id="nf-autoapprove-for" disabled title="How long auto-approve stays on">
+            <option value="0">until I turn it off</option>
+            <option value="1">for 1 minute</option>
+            <option value="5">for 5 minutes</option>
+            <option value="10">for 10 minutes</option>
+            <option value="15">for 15 minutes</option>
+            <option value="30">for 30 minutes</option>
+            <option value="60">for 1 hour</option>
+          </select>
         </label>
         <label class="check"><input id="nf-worktree" type="checkbox" disabled /> Run in a new git worktree (parallel-safe)
           <input id="nf-branch" type="text" spellcheck="false" placeholder="branch name" disabled />

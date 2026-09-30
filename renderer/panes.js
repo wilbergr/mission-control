@@ -182,22 +182,11 @@ window.GWT = window.GWT || {};
       const on = !GWT.state.sessions.get(info.id)?.autoApprove;
       // Turning it on lets Claude act without review, so ask once; turning it
       // off is always safe and immediate.
-      if (on) {
-        const s = GWT.state.sessions.get(info.id);
-        const ok = await GWT.ui.confirmDialog({
-          title: `Auto-approve for "${s ? s.name : 'this session'}"?`,
-          message:
-            "Mission Control will answer every one of Claude's permission prompts in this session with Yes, " +
-            'so it can run commands and change files without you reviewing them. Questions and plan ' +
-            'approvals still come to you, and each approval is logged in Activity.',
-          buttons: [
-            { label: 'Turn on auto-approve', value: 'yes', danger: true },
-            { label: 'Cancel', value: null },
-          ],
-        });
-        if (!ok) return;
-      }
-      window.gwt.sessions.setAutoApprove(info.id, on);
+      if (!on) return void window.gwt.sessions.setAutoApprove(info.id, false);
+      const s = GWT.state.sessions.get(info.id);
+      const minutes = await autoApproveDialog(s ? s.name : 'this session');
+      if (minutes === null) return; // cancelled
+      window.gwt.sessions.setAutoApprove(info.id, true, minutes);
     });
     el.querySelector('.b-pop').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -272,6 +261,48 @@ window.GWT = window.GWT || {};
     }
   }
 
+  // Confirmation for turning auto-approve on, with how long it should last.
+  // Resolves to minutes (0 = until turned off), or null if cancelled.
+  function autoApproveDialog(name) {
+    return new Promise((resolve) => {
+      const dlg = document.createElement('dialog');
+      dlg.className = 'confirm-dlg';
+      dlg.innerHTML = `<h2></h2>
+        <p class="msg">Mission Control will answer Claude's permission prompts in this session with Yes,
+          so it can run commands and change files without you reviewing them. Questions and plan
+          approvals still come to you, and each approval is logged in Activity.</p>
+        <label>Keep it on
+          <select class="aa-for">
+            <option value="0">until I turn it off</option>
+            <option value="1">for 1 minute</option>
+            <option value="5">for 5 minutes</option>
+            <option value="10">for 10 minutes</option>
+            <option value="15">for 15 minutes</option>
+            <option value="30">for 30 minutes</option>
+            <option value="60">for 1 hour</option>
+          </select>
+        </label>
+        <div class="dlg-buttons">
+          <button class="danger aa-ok">Turn on auto-approve</button>
+          <button class="aa-cancel">Cancel</button>
+        </div>`;
+      dlg.querySelector('h2').textContent = `Auto-approve for "${name}"?`;
+      const done = (v) => {
+        dlg.close();
+        dlg.remove();
+        resolve(v);
+      };
+      dlg.querySelector('.aa-ok').addEventListener('click', () => done(Number(dlg.querySelector('.aa-for').value) || 0));
+      dlg.querySelector('.aa-cancel').addEventListener('click', () => done(null));
+      dlg.addEventListener('cancel', (e) => {
+        e.preventDefault();
+        done(null);
+      });
+      document.body.appendChild(dlg);
+      dlg.showModal();
+    });
+  }
+
   // Small floating menu for picking a per-session scheme.
   function showThemeMenu(anchor, sessionId) {
     document.querySelector('.theme-menu')?.remove();
@@ -332,16 +363,19 @@ window.GWT = window.GWT || {};
     const usage = info.usage
       ? ` · ctx ${GWT.util.fmtTokens(info.usage.ctx)} · out ${GWT.util.fmtTokens(info.usage.out)}`
       : '';
-    const auto = info.autoApprove ? ' · AUTO-APPROVE' : '';
+    const auto = !info.autoApprove ? ''
+      : info.autoApproveUntil ? ` · AUTO-APPROVE ${GWT.util.fmtLeft(info.autoApproveUntil)} left` : ' · AUTO-APPROVE';
     p.els.meta.textContent =
       `${STATUS_LABEL[info.status] || info.status}${auto} · ${dur}${usage} — ${info.activity || ''}  ·  ${shortPath(info.cwd)}`;
     p.el.classList.toggle('attention', info.status === 'attention');
     const autoBtn = p.el.querySelector('.b-auto');
     if (autoBtn) {
       autoBtn.classList.toggle('on', !!info.autoApprove);
-      autoBtn.title = info.autoApprove
-        ? "Auto-approve is ON: Claude's permission prompts are answered Yes. Click to turn off."
-        : "Auto-approve Claude's permission prompts in this session";
+      autoBtn.title = !info.autoApprove
+        ? "Auto-approve Claude's permission prompts in this session"
+        : info.autoApproveUntil
+          ? `Auto-approve is ON until ${new Date(info.autoApproveUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}: Claude's permission prompts are answered Yes. Click to turn off now.`
+          : "Auto-approve is ON: Claude's permission prompts are answered Yes. Click to turn off.";
     }
     updateResponseStrip(info);
   }

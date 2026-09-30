@@ -58,6 +58,24 @@ const ALLOW_DECISION = {
   hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } },
 };
 
+// Auto-approve can be limited to a time window. Upper bound so a bad value can't
+// quietly mean "for the next three weeks".
+const MAX_AUTO_APPROVE_MINUTES = 24 * 60;
+
+/** ms for a valid window, 0 for "until turned off", -1 if the value is invalid. */
+function autoApproveWindowMs(minutes) {
+  if (minutes == null || minutes === 0) return 0;
+  const m = Number(minutes);
+  if (!Number.isFinite(m) || m <= 0 || m > MAX_AUTO_APPROVE_MINUTES) return -1;
+  return Math.round(m * 60_000);
+}
+
+function fmtWindow(ms) {
+  const m = ms / 60_000;
+  if (m >= 1) return `${+m.toFixed(1)} minute${m === 1 ? '' : 's'}`;
+  return `${Math.max(1, Math.round(ms / 1000))} seconds`;
+}
+
 const HOOK_EVENTS = [
   'SessionStart',
   'UserPromptSubmit',
@@ -102,6 +120,29 @@ function describeTool(name, input) {
     default:
       return name ? `Tool: ${name}` : 'Working';
   }
+}
+
+// Activity entries carry a one-line `detail` (truncated for the feed row) and,
+// where it adds something, the untruncated `full` text for the entry's detail
+// dialog. Capped so a huge Write payload can't bloat the in-memory feed; the
+// feed itself is never persisted.
+const MAX_ACTIVITY_FULL = 8000;
+
+function capFull(s) {
+  if (typeof s !== 'string' || !s) return undefined;
+  return s.length > MAX_ACTIVITY_FULL ? s.slice(0, MAX_ACTIVITY_FULL) + '\n… (truncated)' : s;
+}
+
+// The whole tool call, for the detail dialog. Shell commands read better raw
+// than JSON-escaped; everything else shows its full input.
+function describeToolFull(name, input) {
+  input = input || {};
+  if ((name === 'Bash' || name === 'PowerShell') && typeof input.command === 'string') {
+    return capFull(`${name}\n\n${input.command}${input.description ? `\n\n— ${input.description}` : ''}`);
+  }
+  let body;
+  try { body = JSON.stringify(input, null, 2); } catch { body = String(input); }
+  return capFull(`${name || 'Tool'}\n\n${body}`);
 }
 
 // Split a user-provided extra-args string, honoring double quotes.
@@ -276,7 +317,9 @@ class SessionManager extends EventEmitter {
       // Answer Claude's permission prompts with "allow". Deliberately never
       // persisted (not in snapshotSessions/mergeHistory): relaunching an old
       // session must not silently come back approving everything.
-      autoApprove: isClaudeKind(kind) && opts.autoApprove === true,
+      autoApprove: isClaudeKind(kind) && opts.autoApprove === true && autoApproveWindowMs(opts.autoApproveMinutes) >= 0,
+      autoApproveUntil: null, // ms timestamp when a timed window ends; null = until turned off
+      autoApproveTimer: null,
       pid: proc.pid,
       proc,
       buffer: '',
@@ -305,6 +348,7 @@ class SessionManager extends EventEmitter {
     };
     this.sessions.set(id, s);
     if (notice) s.activity = notice;
+    if (s.autoApprove) this._startAutoApproveWindow(s, autoApproveWindowMs(opts.autoApproveMinutes));
     if (isClaudeKind(kind)) {
       // Nothing from Claude at all after a generous grace period means the
       // session is stuck (unanswered prompt in the terminal, a launch error we
@@ -344,6 +388,7 @@ class SessionManager extends EventEmitter {
     proc.onExit(({ exitCode }) => {
       s.exitCode = exitCode;
       this._clearStartTimer(s);
+      this._clearAutoApproveTimer(s);
       // bash's "command not found" is 127: Claude isn't installed in the distro,
       // or not on its PATH. Say that rather than just "Exited (code 127)".
       if (s.kind === 'wslclaude' && exitCode === 127 && !s.hooksSeen) {
@@ -360,6 +405,7 @@ class SessionManager extends EventEmitter {
       kind === 'claude' ? 'Claude session launched'
         : kind === 'wslclaude' ? `Claude session launched in ${distro}` : 'Terminal launched');
     if (notice) this._pushActivity(s, 'notice', notice);
+    if (s.autoApprove) this._pushActivity(s, 'autoapprove', this._autoApproveOnText(s));
     return this.describe(s);
   }
 
@@ -406,9 +452,10 @@ class SessionManager extends EventEmitter {
       // that late exit from emitting a status the renderer would treat as a
       // live session and re-add to the sidebar.
       s.removed = true;
-      // The startup watchdog would otherwise still fire and push an activity
-      // entry for a session that is already gone.
+      // The startup watchdog and an auto-approve window would otherwise still
+      // fire against a session that is already gone.
       this._clearStartTimer(s);
+      this._clearAutoApproveTimer(s);
       this.kill(id);
       this.sessions.delete(id);
       const settings = path.join(this.hooksDir, `${id}.json`);
@@ -437,12 +484,51 @@ class SessionManager extends EventEmitter {
     this.emit('status', this.describe(s));
   }
 
-  setAutoApprove(id, on) {
+  // `minutes` limits how long it stays on (omit or 0 for "until turned off").
+  // Turning it on again restarts the window; an invalid window changes nothing.
+  setAutoApprove(id, on, minutes) {
     const s = this.sessions.get(id);
     if (!s || !isClaudeKind(s.kind)) return;
+    const windowMs = autoApproveWindowMs(minutes);
+    if (on === true && windowMs < 0) return;
+    this._clearAutoApproveTimer(s);
     s.autoApprove = on === true;
-    this._pushActivity(s, 'autoapprove', s.autoApprove ? 'Auto-approve turned on' : 'Auto-approve turned off');
+    s.autoApproveUntil = null;
+    if (s.autoApprove) this._startAutoApproveWindow(s, windowMs);
+    this._pushActivity(s, 'autoapprove', s.autoApprove ? this._autoApproveOnText(s) : 'Auto-approve turned off');
     this.emit('status', this.describe(s));
+  }
+
+  _startAutoApproveWindow(s, windowMs) {
+    if (!(windowMs > 0)) return;
+    s.autoApproveUntil = Date.now() + windowMs;
+    s.autoApproveTimer = setTimeout(() => this._expireAutoApprove(s), windowMs);
+  }
+
+  _autoApproveOnText(s) {
+    return s.autoApproveUntil
+      ? `Auto-approve turned on for ${fmtWindow(s.autoApproveUntil - Date.now())}`
+      : 'Auto-approve turned on (until turned off)';
+  }
+
+  // The window ran out. Called by the timer, and also from PermissionRequest
+  // when the deadline has passed — timers don't run while Windows sleeps, so the
+  // timer alone could leave auto-approve on past its end after a sleep.
+  _expireAutoApprove(s) {
+    this._clearAutoApproveTimer(s);
+    if (!s.autoApprove) return;
+    s.autoApprove = false;
+    s.autoApproveUntil = null;
+    if (s.removed) return;
+    this._pushActivity(s, 'autoapprove', 'Auto-approve ended — its time limit ran out');
+    this.emit('status', this.describe(s));
+  }
+
+  _clearAutoApproveTimer(s) {
+    if (s.autoApproveTimer) {
+      clearTimeout(s.autoApproveTimer);
+      s.autoApproveTimer = null;
+    }
   }
 
   setTheme(id, theme) {
@@ -508,6 +594,7 @@ class SessionManager extends EventEmitter {
       distro: s.distro,
       theme: s.theme,
       autoApprove: s.autoApprove,
+      autoApproveUntil: s.autoApproveUntil,
       exitCode: s.exitCode,
     };
   }
@@ -593,7 +680,8 @@ class SessionManager extends EventEmitter {
         s.pendingQuestion = null;
         const p = trunc(payload.prompt, 100);
         this._setStatus(s, 'working', p ? `You: ${p}` : 'Prompt submitted');
-        this._pushActivity(s, 'prompt', p ? `Prompt: ${p}` : 'Prompt submitted');
+        this._pushActivity(s, 'prompt', p ? `Prompt: ${p}` : 'Prompt submitted',
+          typeof payload.prompt === 'string' ? capFull(payload.prompt) : undefined);
         break;
       }
       case 'PreToolUse': {
@@ -604,13 +692,16 @@ class SessionManager extends EventEmitter {
           s.awaitingInput = true;
           const q = s.pendingQuestion ? trunc(s.pendingQuestion[0].question, 110) : 'Question';
           this._setStatus(s, 'attention', `Question: ${q}`);
-          this._pushActivity(s, 'attention', `Question: ${q}`);
+          const full = (s.pendingQuestion || [])
+            .map((qq) => `${qq.question}\n${qq.options.map((o, i) => `  ${i + 1}. ${o}`).join('\n')}`)
+            .join('\n\n');
+          this._pushActivity(s, 'attention', `Question: ${q}`, capFull(full));
           break;
         }
         s.pendingQuestion = null;
         const desc = describeTool(payload.tool_name, payload.tool_input);
         this._setStatus(s, 'working', desc);
-        this._pushActivity(s, 'tool', desc);
+        this._pushActivity(s, 'tool', desc, describeToolFull(payload.tool_name, payload.tool_input));
         break;
       }
       case 'PostToolUse':
@@ -625,7 +716,7 @@ class SessionManager extends EventEmitter {
         // 'attention' clears the flag in _setStatus, so it can't go stale.
         s.awaitingInput = s.awaitingInput || notificationAwaitsInput(payload);
         this._setStatus(s, 'attention', msg);
-        this._pushActivity(s, 'attention', msg);
+        this._pushActivity(s, 'attention', msg, capFull(payload.message));
         break;
       }
       case 'Stop':
@@ -644,6 +735,10 @@ class SessionManager extends EventEmitter {
       case 'PermissionRequest': {
         // Returning nothing leaves Claude to show its normal prompt (which then
         // sends a permission_prompt Notification and raises the answer strip).
+        if (s.autoApprove && s.autoApproveUntil && Date.now() >= s.autoApproveUntil) {
+          this._expireAutoApprove(s); // the deadline wins even if the timer slept
+          return undefined;
+        }
         if (!s.autoApprove || NEVER_AUTO_APPROVE.has(payload.tool_name)) return undefined;
         // Logged so there is always a record of what was approved without a person.
         this._pushActivity(s, 'autoapprove', `Auto-approved ${describeTool(payload.tool_name, payload.tool_input)}`);
@@ -699,13 +794,14 @@ class SessionManager extends EventEmitter {
     if (!s.removed) this.emit('status', this.describe(s));
   }
 
-  _pushActivity(s, type, detail) {
+  _pushActivity(s, type, detail, full) {
     this.emit('activity', {
       ts: Date.now(),
       sessionId: s.id,
       sessionName: s.name,
       type,
       detail,
+      full: full || undefined,
     });
   }
 

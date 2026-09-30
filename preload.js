@@ -25,7 +25,7 @@ contextBridge.exposeInMainWorld('gwt', {
     buffer: (id) => ipcRenderer.invoke('sessions:buffer', id),
     rename: (id, name) => ipcRenderer.invoke('sessions:rename', { id, name }),
     setTheme: (id, theme) => ipcRenderer.invoke('sessions:setTheme', { id, theme }),
-    setAutoApprove: (id, on) => ipcRenderer.invoke('sessions:setAutoApprove', { id, on }),
+    setAutoApprove: (id, on, minutes) => ipcRenderer.invoke('sessions:setAutoApprove', { id, on, minutes }),
     sendText: (ids, text, submit) => ipcRenderer.invoke('sessions:sendText', { ids, text, submit }),
     interrupt: (id) => ipcRenderer.invoke('sessions:interrupt', id),
     popout: (id) => ipcRenderer.invoke('sessions:popout', id),

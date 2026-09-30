@@ -7,6 +7,31 @@ elevation prompt when you run the installer, and again if you use **Restart as
 administrator**. Confirm the file came from the expected internal location before
 accepting.
 
+## 1.7.0 — 2026-09-30
+
+### Added
+
+- **A time limit for auto-approve.** When you turn auto-approve on — in New
+  Session or from the shield in a session's header — choose how long it lasts: 1,
+  5, 10, 15 or 30 minutes, 1 hour, or until you turn it off. When the time runs
+  out it switches itself off, says so in Activity, and Claude goes back to asking.
+  The pane's status line and the sidebar tag count down the time left. The limit
+  holds even if your PC goes to sleep in the meantime.
+
+- **Resizable side panels.** Drag the inner edge of the session list or the
+  Files / Changes / Activity panel to make it wider or narrower; double-click the
+  edge to put it back. Widths are remembered, and the terminals always keep enough
+  room to be usable.
+
+- **Activity entries open in full.** Click any Activity entry to see all of it —
+  the whole prompt, command, question with its options, or tool input, rather than
+  the one line that fits in the panel — with **Copy** and **Go to session**
+  buttons. (Clicking an entry used to jump straight to its session; that is now
+  the **Go to session** button.)
+
+  The Activity feed keeps the newest 400 entries in memory only. It isn't saved
+  anywhere and starts empty each time Mission Control starts.
+
 ## 1.6.0 — 2026-09-30
 
 ### Added
