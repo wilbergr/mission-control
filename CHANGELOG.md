@@ -7,6 +7,15 @@ elevation prompt when you run the installer, and again if you use **Restart as
 administrator**. Confirm the file came from the expected internal location before
 accepting.
 
+## 1.7.2 — 2026-10-23
+
+### Fixed
+
+- **Hard-to-read buttons in light mode.** The red and blue buttons — "Turn on
+  auto-approve", Create, OK, Done, and Save in a popped-out editor — showed dark
+  text on a dark background in light mode. They now have white text on a lighter
+  red or blue. Dark mode is unchanged.
+
 ## 1.7.1 — 2026-10-23
 
 ### Added

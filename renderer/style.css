@@ -79,6 +79,12 @@ button.primary { background: #1a4f8a; border-color: #2a6fbe; }
 button.primary:hover { background: #215fa5; }
 button.danger { background: #5a2020; border-color: #8a3030; }
 button.danger:hover { background: #6e2626; border-color: #a03838; }
+/* The fills above are fixed, but the text is --text, which is near-black in
+   light mode. Give light mode its own fills with white text. */
+:root[data-ui="light"] button.primary { background: #0969da; border-color: #0860c4; color: #fff; }
+:root[data-ui="light"] button.primary:hover { background: #0860c4; }
+:root[data-ui="light"] button.danger { background: #cf222e; border-color: #a40e26; color: #fff; }
+:root[data-ui="light"] button.danger:hover { background: #a40e26; }
 
 .confirm-dlg { min-width: 380px; max-width: 520px; }
 .confirm-dlg .msg { color: var(--text-dim); margin: 0 0 4px; font-size: 13px; }
