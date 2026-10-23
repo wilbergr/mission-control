@@ -67,6 +67,18 @@
       return true;
     });
 
+    // Image-only paste -> Claude's own Alt+V image paste (see panes.js; the
+    // kind check is inlined because pop-outs don't load app.js's GWT.util).
+    const claude = !!info && (info.kind === 'claude' || info.kind === 'wslclaude');
+    document.getElementById('term').addEventListener('paste', (ev) => {
+      const dt = ev.clipboardData;
+      if (!claude || !dt || dt.getData('text/plain')) return;
+      if (![...dt.items].some((it) => it.kind === 'file' && it.type.startsWith('image/'))) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      window.gwt.sessions.write(id, '\x1bv');
+    }, true);
+
     term.onData((d) => window.gwt.sessions.write(id, d));
     term.onResize(({ cols, rows }) => window.gwt.sessions.resize(id, cols, rows));
 

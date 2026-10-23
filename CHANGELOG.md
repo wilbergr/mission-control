@@ -7,6 +7,14 @@ elevation prompt when you run the installer, and again if you use **Restart as
 administrator**. Confirm the file came from the expected internal location before
 accepting.
 
+## 1.7.1 — 2026-10-23
+
+### Added
+
+- **Paste images into Claude with `Ctrl+V`.** A screenshot on the clipboard now
+  pastes into a Claude session (Windows or WSL) as an image, the same as Claude
+  Code's own `Alt+V`. Text pastes are unchanged.
+
 ## 1.7.0 — 2026-09-30
 
 ### Added

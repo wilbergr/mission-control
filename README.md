@@ -147,6 +147,10 @@ or web page.
   copies when something is selected — with no selection it still interrupts,
   as a terminal should. Use `Ctrl+Shift+C` / `Ctrl+Shift+V` when you want
   copy/paste with no chance of sending an interrupt
+- **Paste images into Claude with `Ctrl+V`** — take a screenshot, then paste it
+  into a Claude session as you would text; it shows up as `[Image #1]`. (Claude
+  Code's own `Alt+V` works too.) Only an image with no text on the clipboard is
+  treated this way; anything with text pastes as text
 
 ### Broadcast bar
 
@@ -222,7 +226,7 @@ If you only need Linux-side root, a WSL session's `sudo` needs no Windows elevat
 | `Ctrl+Shift+E` | Toggle right panel |
 | `Ctrl+Shift+F` | Search in focused terminal |
 | `Ctrl+C` | Copy the selection — or interrupt, when nothing is selected |
-| `Ctrl+V` | Paste into the terminal |
+| `Ctrl+V` | Paste into the terminal — an image on the clipboard goes to Claude as an image |
 | `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / paste, never interrupts |
 | `Ctrl+S` | Save (in editors) |
 | `Ctrl+Shift+D` | Dock a popped-out terminal |

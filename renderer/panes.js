@@ -75,6 +75,16 @@ window.GWT = window.GWT || {};
     return true;
   }
 
+  // A paste with an image (a screenshot) and no text would paste nothing:
+  // xterm only takes text. Claude Code reads images off the clipboard itself
+  // when it gets Alt+V (ESC v), so a caller can send that instead. Anything
+  // carrying text is left alone for xterm's own listener.
+  function isImageOnlyPaste(ev) {
+    const dt = ev.clipboardData;
+    if (!dt || dt.getData('text/plain')) return false;
+    return [...dt.items].some((it) => it.kind === 'file' && it.type.startsWith('image/'));
+  }
+
   async function createPane(info) {
     if (panes.has(info.id)) return;
     const el = document.createElement('div');
@@ -149,6 +159,15 @@ window.GWT = window.GWT || {};
     term.onData((d) => window.gwt.sessions.write(info.id, d));
     term.onResize(({ cols, rows }) => window.gwt.sessions.resize(info.id, cols, rows));
     term.open(el.querySelector('.pane-term'));
+
+    // Capture phase, so this runs before xterm's paste listeners below it and
+    // can stop them -- never both, or the paste would be delivered twice.
+    el.querySelector('.pane-term').addEventListener('paste', (ev) => {
+      if (!GWT.util.isClaudeKind(info.kind) || !isImageOnlyPaste(ev)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      window.gwt.sessions.write(info.id, '\x1bv');
+    }, true);
 
     el.addEventListener('mousedown', (e) => {
       // don't yank keyboard focus into the terminal when clicking footer/search UI
